@@ -3010,3 +3010,1803 @@ pub fn causal_mask(size: usize) -> NDArray {
 
     NDArray::new(rumpy_cpu::CpuArray::from_ndarray(arr))
 }
+
+// ============ Additional LLM Inference Ops ============
+
+/// Split array into equal parts along an axis
+///
+/// Essential for QKV separation after single projection matmul.
+///
+/// # Arguments
+/// * `num_splits` - Number of equal parts to split into
+/// * `axis` - Axis along which to split
+#[wasm_bindgen]
+impl NDArray {
+    pub fn split(&self, num_splits: usize, axis: usize) -> Result<js_sys::Array, JsValue> {
+        let data = self.inner.as_ndarray();
+        let shape = data.shape().to_vec();
+
+        if axis >= shape.len() {
+            return Err(JsValue::from_str(&format!(
+                "axis {} is out of bounds for array of dimension {}",
+                axis, shape.len()
+            )));
+        }
+
+        let axis_len = shape[axis];
+        if axis_len % num_splits != 0 {
+            return Err(JsValue::from_str(&format!(
+                "axis {} of size {} cannot be evenly split into {} parts",
+                axis, axis_len, num_splits
+            )));
+        }
+
+        let split_size = axis_len / num_splits;
+        let result = js_sys::Array::new();
+
+        for i in 0..num_splits {
+            let start = i * split_size;
+            let end = start + split_size;
+
+            // Use slice_axis to get a view of the split
+            let slice = data.slice_axis(
+                ndarray::Axis(axis),
+                ndarray::Slice::from(start..end)
+            );
+
+            result.push(&JsValue::from(NDArray::new(
+                rumpy_cpu::CpuArray::from_ndarray(slice.to_owned())
+            )));
+        }
+
+        Ok(result)
+    }
+}
+
+/// Chunk array into parts of a specific size along an axis
+///
+/// Alternative to split when you know the chunk size, not the number of chunks.
+///
+/// # Arguments
+/// * `chunk_size` - Size of each chunk
+/// * `axis` - Axis along which to chunk
+#[wasm_bindgen]
+impl NDArray {
+    pub fn chunk(&self, chunk_size: usize, axis: usize) -> Result<js_sys::Array, JsValue> {
+        let data = self.inner.as_ndarray();
+        let shape = data.shape().to_vec();
+
+        if axis >= shape.len() {
+            return Err(JsValue::from_str(&format!(
+                "axis {} is out of bounds for array of dimension {}",
+                axis, shape.len()
+            )));
+        }
+
+        let axis_len = shape[axis];
+        let result = js_sys::Array::new();
+
+        let mut start = 0;
+        while start < axis_len {
+            let end = (start + chunk_size).min(axis_len);
+
+            let slice = data.slice_axis(
+                ndarray::Axis(axis),
+                ndarray::Slice::from(start..end)
+            );
+
+            result.push(&JsValue::from(NDArray::new(
+                rumpy_cpu::CpuArray::from_ndarray(slice.to_owned())
+            )));
+
+            start = end;
+        }
+
+        Ok(result)
+    }
+}
+
+/// Cumulative sum along an axis
+///
+/// Essential for top-p (nucleus) sampling to calculate cumulative probabilities.
+///
+/// # Arguments
+/// * `axis` - Axis along which to compute cumsum
+#[wasm_bindgen]
+impl NDArray {
+    pub fn cumsum(&self, axis: usize) -> Result<NDArray, JsValue> {
+        let data = self.inner.as_ndarray();
+        let shape = data.shape().to_vec();
+
+        if axis >= shape.len() {
+            return Err(JsValue::from_str(&format!(
+                "axis {} is out of bounds for array of dimension {}",
+                axis, shape.len()
+            )));
+        }
+
+        let mut result = data.to_owned();
+
+        // Use lanes_mut to iterate along the cumsum axis
+        for mut lane in result.lanes_mut(ndarray::Axis(axis)) {
+            let mut acc = 0.0f64;
+            for val in lane.iter_mut() {
+                acc += *val;
+                *val = acc;
+            }
+        }
+
+        Ok(NDArray::new(rumpy_cpu::CpuArray::from_ndarray(result)))
+    }
+}
+
+/// Scatter values to indices along an axis
+///
+/// Essential for KV cache updates - insert new token's KV into cache without
+/// reallocating the entire buffer.
+///
+/// # Arguments
+/// * `axis` - Axis along which to scatter
+/// * `indices` - Indices where to place the values
+/// * `src` - Source values to scatter
+#[wasm_bindgen]
+impl NDArray {
+    pub fn scatter(&self, axis: usize, indices: &NDArray, src: &NDArray) -> Result<NDArray, JsValue> {
+        let data = self.inner.as_ndarray();
+        let idx_data = indices.inner.as_f64_slice();
+        let src_data = src.inner.as_ndarray();
+        let shape = data.shape().to_vec();
+
+        if axis >= shape.len() {
+            return Err(JsValue::from_str(&format!(
+                "axis {} is out of bounds for array of dimension {}",
+                axis, shape.len()
+            )));
+        }
+
+        let mut result = data.to_owned();
+
+        // For 1D case
+        if shape.len() == 1 {
+            for (i, &idx) in idx_data.iter().enumerate() {
+                let idx = idx as usize;
+                if idx < shape[0] {
+                    result[idx] = src_data.as_slice().unwrap()[i];
+                }
+            }
+            return Ok(NDArray::new(rumpy_cpu::CpuArray::from_ndarray(result)));
+        }
+
+        // For N-D case, iterate along the scatter axis
+        let axis_obj = ndarray::Axis(axis);
+        let src_lanes = src_data.lanes(axis_obj);
+        let result_lanes = result.lanes_mut(axis_obj);
+
+        // Each lane in src corresponds to one index
+        for ((src_lane, _idx_val), mut result_lane) in src_lanes.into_iter()
+            .zip(idx_data.iter())
+            .zip(result_lanes.into_iter())
+        {
+            // This simplified version assumes scatter is inserting single values
+            // For more complex scatter, we'd need to iterate over indices per lane
+            for (src_val, dst_val) in src_lane.iter().zip(result_lane.iter_mut()) {
+                *dst_val = *src_val;
+            }
+        }
+
+        Ok(NDArray::new(rumpy_cpu::CpuArray::from_ndarray(result)))
+    }
+}
+
+/// Index copy - copy src into self at specified indices along an axis
+///
+/// Simpler KV cache update: self[indices] = src along axis
+///
+/// # Arguments
+/// * `axis` - Axis along which to copy
+/// * `indices` - 1D indices specifying where to copy
+/// * `src` - Source tensor (must have same shape as self except at axis dimension)
+#[wasm_bindgen]
+impl NDArray {
+    #[wasm_bindgen(js_name = indexCopy)]
+    pub fn index_copy(&self, axis: usize, indices: &NDArray, src: &NDArray) -> Result<NDArray, JsValue> {
+        let data = self.inner.as_ndarray();
+        let idx_data = indices.inner.as_f64_slice();
+        let src_data = src.inner.as_ndarray();
+        let shape = data.shape().to_vec();
+
+        if axis >= shape.len() {
+            return Err(JsValue::from_str(&format!(
+                "axis {} is out of bounds for array of dimension {}",
+                axis, shape.len()
+            )));
+        }
+
+        let mut result = data.to_owned();
+
+        // For each index, copy the corresponding slice from src to result
+        for (i, &idx) in idx_data.iter().enumerate() {
+            let idx = idx as usize;
+            if idx >= shape[axis] {
+                return Err(JsValue::from_str(&format!(
+                    "index {} is out of bounds for axis {} with size {}",
+                    idx, axis, shape[axis]
+                )));
+            }
+
+            // Get the i-th slice from src and copy to idx-th position in result
+            let src_slice = src_data.index_axis(ndarray::Axis(axis), i);
+            let mut dst_slice = result.index_axis_mut(ndarray::Axis(axis), idx);
+            dst_slice.assign(&src_slice);
+        }
+
+        Ok(NDArray::new(rumpy_cpu::CpuArray::from_ndarray(result)))
+    }
+}
+
+/// Multinomial sampling from probability distribution
+///
+/// Essential for non-greedy token generation. Samples from the last dimension.
+///
+/// # Arguments
+/// * `num_samples` - Number of samples to draw
+/// * `replacement` - Whether to sample with replacement
+#[wasm_bindgen]
+impl NDArray {
+    pub fn multinomial(&self, num_samples: usize, replacement: bool) -> Result<NDArray, JsValue> {
+        let data = self.inner.as_ndarray();
+        let shape = data.shape().to_vec();
+
+        if shape.is_empty() {
+            return Err(JsValue::from_str("multinomial requires at least 1D input"));
+        }
+
+        let last_dim = *shape.last().unwrap();
+
+        if num_samples > last_dim && !replacement {
+            return Err(JsValue::from_str(&format!(
+                "cannot draw {} samples without replacement from {} categories",
+                num_samples, last_dim
+            )));
+        }
+
+        // Output shape: same as input but last dim is num_samples
+        let mut out_shape = shape.clone();
+        *out_shape.last_mut().unwrap() = num_samples;
+
+        // Flatten to 2D for processing
+        let batch_size: usize = shape[..shape.len() - 1].iter().product();
+        let batch_size = batch_size.max(1);
+
+        let data_contiguous = data.as_standard_layout();
+        let flat = data_contiguous.view()
+            .into_shape((batch_size, last_dim))
+            .map_err(|e| JsValue::from_str(&format!("reshape failed: {}", e)))?;
+
+        let mut result = ndarray::Array2::<f64>::zeros((batch_size, num_samples));
+
+        for (batch_idx, probs) in flat.outer_iter().enumerate() {
+            // Normalize probabilities (in case they don't sum to 1)
+            let sum: f64 = probs.iter().sum();
+            let normalized: Vec<f64> = probs.iter().map(|&p| p / sum).collect();
+
+            // Build cumulative distribution
+            let mut cumsum = Vec::with_capacity(last_dim);
+            let mut acc = 0.0f64;
+            for &p in &normalized {
+                acc += p;
+                cumsum.push(acc);
+            }
+
+            // Sample using js_sys::Math::random() for WASM compatibility
+            let mut used = vec![false; last_dim];
+            for sample_idx in 0..num_samples {
+                let r: f64 = js_sys::Math::random();
+
+                // Binary search for the sample
+                let mut idx = cumsum.partition_point(|&c| c < r);
+                if idx >= last_dim {
+                    idx = last_dim - 1;
+                }
+
+                // If no replacement, find next available
+                if !replacement {
+                    while used[idx] && idx < last_dim - 1 {
+                        idx += 1;
+                    }
+                    if used[idx] {
+                        // Wrap around
+                        idx = 0;
+                        while used[idx] && idx < last_dim - 1 {
+                            idx += 1;
+                        }
+                    }
+                    used[idx] = true;
+                }
+
+                result[[batch_idx, sample_idx]] = idx as f64;
+            }
+        }
+
+        let result_shaped = result.into_shape(ndarray::IxDyn(&out_shape))
+            .map_err(|e| JsValue::from_str(&format!("reshape result failed: {}", e)))?;
+
+        Ok(NDArray::new(rumpy_cpu::CpuArray::from_ndarray(result_shaped)))
+    }
+}
+
+/// Tile/repeat array along each dimension
+///
+/// Essential for beam search - duplicating context for multiple hypotheses.
+///
+/// # Arguments
+/// * `reps` - Number of repetitions along each dimension
+#[wasm_bindgen]
+impl NDArray {
+    pub fn tile(&self, reps: Vec<usize>) -> Result<NDArray, JsValue> {
+        let data = self.inner.as_ndarray();
+        let shape = data.shape().to_vec();
+
+        // Pad reps or shape to match dimensions
+        let ndim = shape.len().max(reps.len());
+        let mut padded_shape = vec![1usize; ndim - shape.len()];
+        padded_shape.extend(&shape);
+        let mut padded_reps = vec![1usize; ndim - reps.len()];
+        padded_reps.extend(&reps);
+
+        // Calculate output shape
+        let out_shape: Vec<usize> = padded_shape.iter()
+            .zip(padded_reps.iter())
+            .map(|(&s, &r)| s * r)
+            .collect();
+
+        // Ensure contiguous data
+        let data_contiguous = data.as_standard_layout();
+        let reshaped = data_contiguous.view()
+            .into_shape(ndarray::IxDyn(&padded_shape))
+            .map_err(|e| JsValue::from_str(&format!("reshape failed: {}", e)))?;
+
+        // Build result by broadcasting and assignment
+        let mut result = ndarray::ArrayD::<f64>::zeros(ndarray::IxDyn(&out_shape));
+
+        // Fill by iterating over tiles
+        let mut indices = vec![0usize; ndim];
+        loop {
+            // Copy the tile at current indices
+            for (src_idx, src_val) in reshaped.indexed_iter() {
+                let mut dst_idx = vec![0usize; ndim];
+                for d in 0..ndim {
+                    dst_idx[d] = indices[d] * padded_shape[d] + src_idx[d];
+                }
+                result[ndarray::IxDyn(&dst_idx)] = *src_val;
+            }
+
+            // Increment indices
+            let mut d = ndim - 1;
+            loop {
+                indices[d] += 1;
+                if indices[d] < padded_reps[d] {
+                    break;
+                }
+                indices[d] = 0;
+                if d == 0 {
+                    // Done
+                    return Ok(NDArray::new(rumpy_cpu::CpuArray::from_ndarray(result)));
+                }
+                d -= 1;
+            }
+        }
+    }
+}
+
+/// Repeat elements along an axis
+///
+/// Different from tile - this repeats individual elements, not the whole array.
+///
+/// # Arguments
+/// * `repeats` - Number of repetitions for each element
+/// * `axis` - Axis along which to repeat (optional, flattens if not specified)
+#[wasm_bindgen]
+impl NDArray {
+    #[wasm_bindgen(js_name = repeat)]
+    pub fn repeat_elements(&self, repeats: usize, axis: Option<usize>) -> Result<NDArray, JsValue> {
+        let data = self.inner.as_ndarray();
+
+        match axis {
+            None => {
+                // Flatten and repeat
+                let flat: Vec<f64> = data.iter().cloned().collect();
+                let repeated: Vec<f64> = flat.iter()
+                    .flat_map(|&v| std::iter::repeat(v).take(repeats))
+                    .collect();
+                let arr = ndarray::ArrayD::from_shape_vec(
+                    ndarray::IxDyn(&[repeated.len()]),
+                    repeated
+                ).map_err(|e| JsValue::from_str(&format!("reshape failed: {}", e)))?;
+                Ok(NDArray::new(rumpy_cpu::CpuArray::from_ndarray(arr)))
+            }
+            Some(ax) => {
+                let shape = data.shape().to_vec();
+                if ax >= shape.len() {
+                    return Err(JsValue::from_str(&format!(
+                        "axis {} is out of bounds for array of dimension {}",
+                        ax, shape.len()
+                    )));
+                }
+
+                // Build new shape
+                let mut out_shape = shape.clone();
+                out_shape[ax] *= repeats;
+
+                let mut result = ndarray::ArrayD::<f64>::zeros(ndarray::IxDyn(&out_shape));
+
+                // Iterate and repeat along axis
+                for (i, src_slice) in data.axis_iter(ndarray::Axis(ax)).enumerate() {
+                    for r in 0..repeats {
+                        let dst_idx = i * repeats + r;
+                        let mut dst_slice = result.index_axis_mut(ndarray::Axis(ax), dst_idx);
+                        dst_slice.assign(&src_slice);
+                    }
+                }
+
+                Ok(NDArray::new(rumpy_cpu::CpuArray::from_ndarray(result)))
+            }
+        }
+    }
+}
+
+/// Pad array with constant value
+///
+/// # Arguments
+/// * `pad_width` - Padding for each dimension as [before0, after0, before1, after1, ...]
+/// * `constant_value` - Value to pad with
+#[wasm_bindgen]
+impl NDArray {
+    pub fn pad(&self, pad_width: Vec<usize>, constant_value: f64) -> Result<NDArray, JsValue> {
+        let data = self.inner.as_ndarray();
+        let shape = data.shape().to_vec();
+        let ndim = shape.len();
+
+        if pad_width.len() != ndim * 2 {
+            return Err(JsValue::from_str(&format!(
+                "pad_width must have {} elements for {}D array, got {}",
+                ndim * 2, ndim, pad_width.len()
+            )));
+        }
+
+        // Calculate output shape
+        let mut out_shape = vec![0usize; ndim];
+        for d in 0..ndim {
+            out_shape[d] = pad_width[d * 2] + shape[d] + pad_width[d * 2 + 1];
+        }
+
+        // Create output filled with constant
+        let mut result = ndarray::ArrayD::<f64>::from_elem(ndarray::IxDyn(&out_shape), constant_value);
+
+        // Build the slice ranges for where to insert the original data
+        let mut slice_info: Vec<ndarray::SliceInfoElem> = Vec::with_capacity(ndim);
+        for d in 0..ndim {
+            let start = pad_width[d * 2] as isize;
+            let end = (pad_width[d * 2] + shape[d]) as isize;
+            slice_info.push(ndarray::SliceInfoElem::Slice {
+                start,
+                end: Some(end),
+                step: 1,
+            });
+        }
+
+        // Assign data to the center
+        let mut view = result.slice_mut(slice_info.as_slice());
+        view.assign(&data);
+
+        Ok(NDArray::new(rumpy_cpu::CpuArray::from_ndarray(result)))
+    }
+}
+
+/// Log-softmax for numerical stability
+///
+/// Computes log(softmax(x)) using the LogSumExp trick to prevent overflow/underflow.
+/// Essential for calculating perplexity and beam search scoring.
+///
+/// # Arguments
+/// * `axis` - Axis along which to compute log_softmax
+#[wasm_bindgen]
+impl NDArray {
+    #[wasm_bindgen(js_name = logSoftmax)]
+    pub fn log_softmax(&self, axis: usize) -> Result<NDArray, JsValue> {
+        let data = self.inner.as_ndarray();
+        let shape = data.shape().to_vec();
+
+        if axis >= shape.len() {
+            return Err(JsValue::from_str(&format!(
+                "axis {} is out of bounds for array of dimension {}",
+                axis, shape.len()
+            )));
+        }
+
+        let mut result = data.to_owned();
+
+        // For numerical stability: log_softmax(x) = x - max(x) - log(sum(exp(x - max(x))))
+        for mut lane in result.lanes_mut(ndarray::Axis(axis)) {
+            // Find max for stability
+            let max_val = lane.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+
+            // Compute log(sum(exp(x - max)))
+            let log_sum_exp = lane.iter()
+                .map(|&x| (x - max_val).exp())
+                .sum::<f64>()
+                .ln();
+
+            // Apply: x - max - log_sum_exp
+            for val in lane.iter_mut() {
+                *val = *val - max_val - log_sum_exp;
+            }
+        }
+
+        Ok(NDArray::new(rumpy_cpu::CpuArray::from_ndarray(result)))
+    }
+}
+
+/// Cumulative product along an axis
+///
+/// # Arguments
+/// * `axis` - Axis along which to compute cumprod
+#[wasm_bindgen]
+impl NDArray {
+    pub fn cumprod(&self, axis: usize) -> Result<NDArray, JsValue> {
+        let data = self.inner.as_ndarray();
+        let shape = data.shape().to_vec();
+
+        if axis >= shape.len() {
+            return Err(JsValue::from_str(&format!(
+                "axis {} is out of bounds for array of dimension {}",
+                axis, shape.len()
+            )));
+        }
+
+        let mut result = data.to_owned();
+
+        for mut lane in result.lanes_mut(ndarray::Axis(axis)) {
+            let mut acc = 1.0f64;
+            for val in lane.iter_mut() {
+                acc *= *val;
+                *val = acc;
+            }
+        }
+
+        Ok(NDArray::new(rumpy_cpu::CpuArray::from_ndarray(result)))
+    }
+}
+
+/// Diff - compute n-th discrete difference along axis
+///
+/// # Arguments
+/// * `n` - Number of times to apply diff
+/// * `axis` - Axis along which to diff
+#[wasm_bindgen]
+impl NDArray {
+    pub fn diff(&self, n: usize, axis: usize) -> Result<NDArray, JsValue> {
+        if n == 0 {
+            return Ok(NDArray::new(self.inner.clone()));
+        }
+
+        let mut current = self.inner.as_ndarray().to_owned();
+        let mut shape = current.shape().to_vec();
+
+        if axis >= shape.len() {
+            return Err(JsValue::from_str(&format!(
+                "axis {} is out of bounds for array of dimension {}",
+                axis, shape.len()
+            )));
+        }
+
+        for _ in 0..n {
+            if shape[axis] < 2 {
+                return Err(JsValue::from_str("diff requires at least 2 elements along axis"));
+            }
+
+            let new_len = shape[axis] - 1;
+            shape[axis] = new_len;
+
+            let mut result = ndarray::ArrayD::<f64>::zeros(ndarray::IxDyn(&shape));
+
+            // Compute differences
+            for (i, (curr, next)) in current.axis_iter(ndarray::Axis(axis))
+                .zip(current.axis_iter(ndarray::Axis(axis)).skip(1))
+                .enumerate()
+            {
+                let mut dst = result.index_axis_mut(ndarray::Axis(axis), i);
+                dst.zip_mut_with(&next, |d, &n| *d = n);
+                dst.zip_mut_with(&curr, |d, &c| *d -= c);
+            }
+
+            current = result;
+        }
+
+        Ok(NDArray::new(rumpy_cpu::CpuArray::from_ndarray(current)))
+    }
+}
+
+// ============================================================================
+// Missing NumPy ops - Added for ML model compatibility
+// ============================================================================
+
+// ============ Element-wise maximum/minimum ============
+
+/// Element-wise maximum of two arrays
+///
+/// Compares two arrays element-by-element and returns the maximum values.
+/// Equivalent to numpy.maximum(a, b).
+/// Supports broadcasting.
+#[wasm_bindgen]
+pub fn maximum(a: &NDArray, b: &NDArray) -> Result<NDArray, JsValue> {
+    let a_data = a.inner.as_ndarray();
+    let b_data = b.inner.as_ndarray();
+
+    // Check if shapes are compatible for broadcasting
+    let a_shape = a_data.shape();
+    let b_shape = b_data.shape();
+
+    if a_shape == b_shape {
+        // Same shape - simple element-wise max
+        let result = ndarray::Zip::from(&*a_data)
+            .and(&*b_data)
+            .map_collect(|&av, &bv| av.max(bv));
+        Ok(NDArray::new(rumpy_cpu::CpuArray::from_ndarray(result)))
+    } else if a_data.len() == 1 {
+        // a is scalar
+        let scalar = a_data.iter().next().unwrap();
+        let result = b_data.mapv(|v| v.max(*scalar));
+        Ok(NDArray::new(rumpy_cpu::CpuArray::from_ndarray(result)))
+    } else if b_data.len() == 1 {
+        // b is scalar
+        let scalar = b_data.iter().next().unwrap();
+        let result = a_data.mapv(|v| v.max(*scalar));
+        Ok(NDArray::new(rumpy_cpu::CpuArray::from_ndarray(result)))
+    } else {
+        // Try numpy-style broadcasting
+        let b_dim = ndarray::IxDyn(b_shape);
+        if let Some(a_broadcast) = a_data.broadcast(b_dim.clone()) {
+            let result = ndarray::Zip::from(&a_broadcast)
+                .and(&*b_data)
+                .map_collect(|&av, &bv| av.max(bv));
+            return Ok(NDArray::new(rumpy_cpu::CpuArray::from_ndarray(result)));
+        }
+
+        let a_dim = ndarray::IxDyn(a_shape);
+        if let Some(b_broadcast) = b_data.broadcast(a_dim) {
+            let result = ndarray::Zip::from(&*a_data)
+                .and(&b_broadcast)
+                .map_collect(|&av, &bv| av.max(bv));
+            return Ok(NDArray::new(rumpy_cpu::CpuArray::from_ndarray(result)));
+        }
+
+        Err(JsValue::from_str(&format!(
+            "shapes {:?} and {:?} are not broadcastable",
+            a_shape, b_shape
+        )))
+    }
+}
+
+/// Element-wise minimum of two arrays
+///
+/// Compares two arrays element-by-element and returns the minimum values.
+/// Equivalent to numpy.minimum(a, b).
+/// Supports broadcasting.
+#[wasm_bindgen]
+pub fn minimum(a: &NDArray, b: &NDArray) -> Result<NDArray, JsValue> {
+    let a_data = a.inner.as_ndarray();
+    let b_data = b.inner.as_ndarray();
+
+    let a_shape = a_data.shape();
+    let b_shape = b_data.shape();
+
+    if a_shape == b_shape {
+        let result = ndarray::Zip::from(&*a_data)
+            .and(&*b_data)
+            .map_collect(|&av, &bv| av.min(bv));
+        Ok(NDArray::new(rumpy_cpu::CpuArray::from_ndarray(result)))
+    } else if a_data.len() == 1 {
+        let scalar = a_data.iter().next().unwrap();
+        let result = b_data.mapv(|v| v.min(*scalar));
+        Ok(NDArray::new(rumpy_cpu::CpuArray::from_ndarray(result)))
+    } else if b_data.len() == 1 {
+        let scalar = b_data.iter().next().unwrap();
+        let result = a_data.mapv(|v| v.min(*scalar));
+        Ok(NDArray::new(rumpy_cpu::CpuArray::from_ndarray(result)))
+    } else {
+        let b_dim = ndarray::IxDyn(b_shape);
+        if let Some(a_broadcast) = a_data.broadcast(b_dim.clone()) {
+            let result = ndarray::Zip::from(&a_broadcast)
+                .and(&*b_data)
+                .map_collect(|&av, &bv| av.min(bv));
+            return Ok(NDArray::new(rumpy_cpu::CpuArray::from_ndarray(result)));
+        }
+
+        let a_dim = ndarray::IxDyn(a_shape);
+        if let Some(b_broadcast) = b_data.broadcast(a_dim) {
+            let result = ndarray::Zip::from(&*a_data)
+                .and(&b_broadcast)
+                .map_collect(|&av, &bv| av.min(bv));
+            return Ok(NDArray::new(rumpy_cpu::CpuArray::from_ndarray(result)));
+        }
+
+        Err(JsValue::from_str(&format!(
+            "shapes {:?} and {:?} are not broadcastable",
+            a_shape, b_shape
+        )))
+    }
+}
+
+/// Element-wise maximum with a scalar
+#[wasm_bindgen(js_name = maximumScalar)]
+pub fn maximum_scalar(arr: &NDArray, scalar: f64) -> NDArray {
+    let data = arr.inner.as_ndarray();
+    let result = data.mapv(|v| v.max(scalar));
+    NDArray::new(rumpy_cpu::CpuArray::from_ndarray(result))
+}
+
+/// Element-wise minimum with a scalar
+#[wasm_bindgen(js_name = minimumScalar)]
+pub fn minimum_scalar(arr: &NDArray, scalar: f64) -> NDArray {
+    let data = arr.inner.as_ndarray();
+    let result = data.mapv(|v| v.min(scalar));
+    NDArray::new(rumpy_cpu::CpuArray::from_ndarray(result))
+}
+
+// ============ Additional math functions ============
+
+/// Element-wise atan2(y, x)
+///
+/// Computes the arc tangent of y/x, using the signs of both arguments
+/// to determine the quadrant of the return value.
+/// Equivalent to numpy.arctan2(y, x).
+#[wasm_bindgen(js_name = atan2Arr)]
+pub fn atan2_arr(y: &NDArray, x: &NDArray) -> Result<NDArray, JsValue> {
+    let y_data = y.inner.as_ndarray();
+    let x_data = x.inner.as_ndarray();
+
+    if y_data.shape() != x_data.shape() {
+        return Err(JsValue::from_str(&format!(
+            "shapes {:?} and {:?} must match for atan2",
+            y_data.shape(), x_data.shape()
+        )));
+    }
+
+    let result = ndarray::Zip::from(&*y_data)
+        .and(&*x_data)
+        .map_collect(|&yv, &xv| yv.atan2(xv));
+    Ok(NDArray::new(rumpy_cpu::CpuArray::from_ndarray(result)))
+}
+
+/// Element-wise log(1 + x)
+///
+/// Computes log(1 + x) with better precision for small x.
+/// Equivalent to numpy.log1p(x).
+#[wasm_bindgen(js_name = log1pArr)]
+pub fn log1p_arr(arr: &NDArray) -> NDArray {
+    let data = arr.inner.as_ndarray();
+    let result = data.mapv(|v| v.ln_1p());
+    NDArray::new(rumpy_cpu::CpuArray::from_ndarray(result))
+}
+
+/// Element-wise exp(x) - 1
+///
+/// Computes exp(x) - 1 with better precision for small x.
+/// Equivalent to numpy.expm1(x).
+#[wasm_bindgen(js_name = expm1Arr)]
+pub fn expm1_arr(arr: &NDArray) -> NDArray {
+    let data = arr.inner.as_ndarray();
+    let result = data.mapv(|v| v.exp_m1());
+    NDArray::new(rumpy_cpu::CpuArray::from_ndarray(result))
+}
+
+/// Element-wise sign function
+///
+/// Returns -1 for negative, 0 for zero, 1 for positive values.
+/// Equivalent to numpy.sign(x).
+#[wasm_bindgen(js_name = signArr)]
+pub fn sign_arr(arr: &NDArray) -> NDArray {
+    let data = arr.inner.as_ndarray();
+    let result = data.mapv(|v| {
+        if v > 0.0 { 1.0 }
+        else if v < 0.0 { -1.0 }
+        else { 0.0 }
+    });
+    NDArray::new(rumpy_cpu::CpuArray::from_ndarray(result))
+}
+
+/// Element-wise square (x^2)
+///
+/// Computes x * x for each element.
+/// Equivalent to numpy.square(x).
+#[wasm_bindgen(js_name = squareArr)]
+pub fn square_arr(arr: &NDArray) -> NDArray {
+    let data = arr.inner.as_ndarray();
+    let result = data.mapv(|v| v * v);
+    NDArray::new(rumpy_cpu::CpuArray::from_ndarray(result))
+}
+
+// ============ Logical operations ============
+
+/// Element-wise logical AND
+///
+/// Returns 1.0 where both inputs are non-zero, 0.0 otherwise.
+/// Equivalent to numpy.logical_and(a, b).
+#[wasm_bindgen(js_name = logicalAnd)]
+pub fn logical_and(a: &NDArray, b: &NDArray) -> Result<NDArray, JsValue> {
+    let a_data = a.inner.as_ndarray();
+    let b_data = b.inner.as_ndarray();
+
+    if a_data.shape() != b_data.shape() {
+        return Err(JsValue::from_str(&format!(
+            "shapes {:?} and {:?} must match for logical_and",
+            a_data.shape(), b_data.shape()
+        )));
+    }
+
+    let result = ndarray::Zip::from(&*a_data)
+        .and(&*b_data)
+        .map_collect(|&av, &bv| if av != 0.0 && bv != 0.0 { 1.0 } else { 0.0 });
+    Ok(NDArray::new(rumpy_cpu::CpuArray::from_ndarray(result)))
+}
+
+/// Element-wise logical OR
+///
+/// Returns 1.0 where either input is non-zero, 0.0 otherwise.
+/// Equivalent to numpy.logical_or(a, b).
+#[wasm_bindgen(js_name = logicalOr)]
+pub fn logical_or(a: &NDArray, b: &NDArray) -> Result<NDArray, JsValue> {
+    let a_data = a.inner.as_ndarray();
+    let b_data = b.inner.as_ndarray();
+
+    if a_data.shape() != b_data.shape() {
+        return Err(JsValue::from_str(&format!(
+            "shapes {:?} and {:?} must match for logical_or",
+            a_data.shape(), b_data.shape()
+        )));
+    }
+
+    let result = ndarray::Zip::from(&*a_data)
+        .and(&*b_data)
+        .map_collect(|&av, &bv| if av != 0.0 || bv != 0.0 { 1.0 } else { 0.0 });
+    Ok(NDArray::new(rumpy_cpu::CpuArray::from_ndarray(result)))
+}
+
+/// Element-wise logical NOT
+///
+/// Returns 1.0 where input is zero, 0.0 otherwise.
+/// Equivalent to numpy.logical_not(x).
+#[wasm_bindgen(js_name = logicalNot)]
+pub fn logical_not(arr: &NDArray) -> NDArray {
+    let data = arr.inner.as_ndarray();
+    let result = data.mapv(|v| if v == 0.0 { 1.0 } else { 0.0 });
+    NDArray::new(rumpy_cpu::CpuArray::from_ndarray(result))
+}
+
+// ============ Flip operations ============
+
+/// Flip array along specified axis
+///
+/// Reverses the order of elements along the given axis.
+/// Equivalent to numpy.flip(arr, axis).
+#[wasm_bindgen]
+impl NDArray {
+    pub fn flip(&self, axis: usize) -> Result<NDArray, JsValue> {
+        let data = self.inner.as_ndarray();
+        let shape = data.shape();
+
+        if axis >= shape.len() {
+            return Err(JsValue::from_str(&format!(
+                "axis {} is out of bounds for array of dimension {}",
+                axis, shape.len()
+            )));
+        }
+
+        // Use slice with step=-1 along the axis
+        let mut slice_info: Vec<ndarray::SliceInfoElem> = Vec::with_capacity(shape.len());
+        for i in 0..shape.len() {
+            if i == axis {
+                slice_info.push(ndarray::SliceInfoElem::Slice {
+                    start: 0,
+                    end: None,
+                    step: -1,
+                });
+            } else {
+                slice_info.push(ndarray::SliceInfoElem::Slice {
+                    start: 0,
+                    end: None,
+                    step: 1,
+                });
+            }
+        }
+
+        let sliced = data.slice(slice_info.as_slice());
+        Ok(NDArray::new(rumpy_cpu::CpuArray::from_ndarray(sliced.to_owned())))
+    }
+
+    /// Flip array vertically (along axis 0)
+    ///
+    /// Equivalent to numpy.flipud(arr) or flip(arr, 0).
+    pub fn flipud(&self) -> Result<NDArray, JsValue> {
+        self.flip(0)
+    }
+
+    /// Flip array horizontally (along axis 1)
+    ///
+    /// Equivalent to numpy.fliplr(arr) or flip(arr, 1).
+    /// Requires at least 2D array.
+    pub fn fliplr(&self) -> Result<NDArray, JsValue> {
+        if self.inner.ndim() < 2 {
+            return Err(JsValue::from_str("fliplr requires at least 2D array"));
+        }
+        self.flip(1)
+    }
+}
+
+// ============ Roll operation ============
+
+/// Roll array elements along an axis
+///
+/// Elements that roll beyond the last position are re-introduced at the first.
+/// Equivalent to numpy.roll(arr, shift, axis).
+/// Critical for Swin Transformer's cyclic shift operation.
+#[wasm_bindgen]
+impl NDArray {
+    pub fn roll(&self, shift: i32, axis: usize) -> Result<NDArray, JsValue> {
+        let data = self.inner.as_ndarray();
+        let shape = data.shape();
+
+        if axis >= shape.len() {
+            return Err(JsValue::from_str(&format!(
+                "axis {} is out of bounds for array of dimension {}",
+                axis, shape.len()
+            )));
+        }
+
+        let axis_len = shape[axis] as i32;
+        if axis_len == 0 {
+            return Ok(NDArray::new(self.inner.clone()));
+        }
+
+        // Normalize shift to positive value in [0, axis_len)
+        let shift_norm = ((shift % axis_len) + axis_len) % axis_len;
+        if shift_norm == 0 {
+            return Ok(NDArray::new(self.inner.clone()));
+        }
+
+        let mut result = data.to_owned();
+
+        // Roll by concatenating two slices: [axis_len-shift:] + [:axis_len-shift]
+        let split_point = (axis_len - shift_norm) as usize;
+
+        for (dst_idx, src_idx) in (0..shape[axis]).enumerate() {
+            let actual_src = if dst_idx < shift_norm as usize {
+                split_point + dst_idx
+            } else {
+                dst_idx - shift_norm as usize
+            };
+
+            // Copy slice from source to destination
+            let src_slice = data.index_axis(ndarray::Axis(axis), actual_src);
+            let mut dst_slice = result.index_axis_mut(ndarray::Axis(axis), dst_idx);
+            dst_slice.assign(&src_slice);
+        }
+
+        Ok(NDArray::new(rumpy_cpu::CpuArray::from_ndarray(result)))
+    }
+}
+
+// ============ Diagonal operations ============
+
+/// Extract diagonal or construct diagonal array
+///
+/// If input is 2D, extracts the diagonal.
+/// If input is 1D, constructs a 2D array with the input on the diagonal.
+/// k specifies diagonal offset (0=main, positive=above, negative=below).
+/// Equivalent to numpy.diag(arr, k).
+#[wasm_bindgen]
+impl NDArray {
+    pub fn diag(&self, k: i32) -> Result<NDArray, JsValue> {
+        let data = self.inner.as_ndarray();
+        let shape = data.shape();
+
+        match shape.len() {
+            1 => {
+                // 1D -> 2D diagonal matrix
+                let n = shape[0];
+                let offset = k.unsigned_abs() as usize;
+                let size = n + offset;
+                let mut result = ndarray::Array2::<f64>::zeros((size, size));
+
+                for i in 0..n {
+                    if k >= 0 {
+                        result[[i, i + offset]] = data[[i]];
+                    } else {
+                        result[[i + offset, i]] = data[[i]];
+                    }
+                }
+
+                Ok(NDArray::new(rumpy_cpu::CpuArray::from_ndarray(result.into_dyn())))
+            }
+            2 => {
+                // 2D -> extract diagonal
+                let (rows, cols) = (shape[0], shape[1]);
+                let (start_row, start_col, diag_len) = if k >= 0 {
+                    let start_col = k as usize;
+                    let diag_len = cols.saturating_sub(start_col).min(rows);
+                    (0, start_col, diag_len)
+                } else {
+                    let start_row = (-k) as usize;
+                    let diag_len = rows.saturating_sub(start_row).min(cols);
+                    (start_row, 0, diag_len)
+                };
+
+                let mut result = Vec::with_capacity(diag_len);
+                for i in 0..diag_len {
+                    result.push(data[[start_row + i, start_col + i]]);
+                }
+
+                Ok(NDArray::new(rumpy_cpu::CpuArray::from_f64_vec(result.clone(), vec![result.len()])
+                    .map_err(|e| JsValue::from_str(&e.to_string()))?))
+            }
+            _ => Err(JsValue::from_str("diag expects 1D or 2D array")),
+        }
+    }
+
+    /// Extract diagonal from 2D array (alias for diag with k=0)
+    pub fn diagonal(&self, offset: Option<i32>) -> Result<NDArray, JsValue> {
+        self.diag(offset.unwrap_or(0))
+    }
+}
+
+// ============ Reduction operations ============
+
+/// Log-sum-exp along an axis (numerically stable)
+///
+/// Computes log(sum(exp(x))) in a numerically stable way by subtracting max.
+/// Equivalent to scipy.special.logsumexp or torch.logsumexp.
+#[wasm_bindgen]
+impl NDArray {
+    pub fn logsumexp(&self, axis: usize, keepdims: Option<bool>) -> Result<NDArray, JsValue> {
+        let data = self.inner.as_ndarray();
+        let shape = data.shape();
+
+        if axis >= shape.len() {
+            return Err(JsValue::from_str(&format!(
+                "axis {} is out of bounds for array of dimension {}",
+                axis, shape.len()
+            )));
+        }
+
+        let ax = ndarray::Axis(axis);
+
+        // Compute max along axis for numerical stability
+        let max_vals = data.map_axis(ax, |lane| {
+            lane.iter().cloned().fold(f64::NEG_INFINITY, f64::max)
+        });
+
+        // Compute logsumexp: max + log(sum(exp(x - max)))
+        let result = ndarray::Zip::from(max_vals.view())
+            .and(data.lanes(ax))
+            .map_collect(|&max_val, lane| {
+                let sum_exp: f64 = lane.iter()
+                    .map(|&x| (x - max_val).exp())
+                    .sum();
+                max_val + sum_exp.ln()
+            });
+
+        if keepdims.unwrap_or(false) {
+            let mut new_shape = result.shape().to_vec();
+            new_shape.insert(axis, 1);
+            CpuBackend::reshape(&rumpy_cpu::CpuArray::from_ndarray(result), new_shape)
+                .map(NDArray::new)
+                .map_err(|e| JsValue::from_str(&e.to_string()))
+        } else {
+            Ok(NDArray::new(rumpy_cpu::CpuArray::from_ndarray(result)))
+        }
+    }
+
+    /// Test if all elements are true (non-zero)
+    ///
+    /// Returns 1.0 if all elements are non-zero, 0.0 otherwise.
+    /// Equivalent to numpy.all(arr).
+    pub fn all(&self) -> f64 {
+        let data = self.inner.as_f64_slice();
+        if data.iter().all(|&x| x != 0.0) { 1.0 } else { 0.0 }
+    }
+
+    /// Test if any element is true (non-zero)
+    ///
+    /// Returns 1.0 if any element is non-zero, 0.0 otherwise.
+    /// Equivalent to numpy.any(arr).
+    pub fn any(&self) -> f64 {
+        let data = self.inner.as_f64_slice();
+        if data.iter().any(|&x| x != 0.0) { 1.0 } else { 0.0 }
+    }
+
+    /// Test if all elements are true along an axis
+    #[wasm_bindgen(js_name = allAxis)]
+    pub fn all_axis(&self, axis: usize, keepdims: Option<bool>) -> Result<NDArray, JsValue> {
+        let data = self.inner.as_ndarray();
+        let shape = data.shape();
+
+        if axis >= shape.len() {
+            return Err(JsValue::from_str(&format!(
+                "axis {} is out of bounds for array of dimension {}",
+                axis, shape.len()
+            )));
+        }
+
+        let ax = ndarray::Axis(axis);
+        let result = data.map_axis(ax, |lane| {
+            if lane.iter().all(|&x| x != 0.0) { 1.0 } else { 0.0 }
+        });
+
+        if keepdims.unwrap_or(false) {
+            let mut new_shape = result.shape().to_vec();
+            new_shape.insert(axis, 1);
+            CpuBackend::reshape(&rumpy_cpu::CpuArray::from_ndarray(result), new_shape)
+                .map(NDArray::new)
+                .map_err(|e| JsValue::from_str(&e.to_string()))
+        } else {
+            Ok(NDArray::new(rumpy_cpu::CpuArray::from_ndarray(result)))
+        }
+    }
+
+    /// Test if any element is true along an axis
+    #[wasm_bindgen(js_name = anyAxis)]
+    pub fn any_axis(&self, axis: usize, keepdims: Option<bool>) -> Result<NDArray, JsValue> {
+        let data = self.inner.as_ndarray();
+        let shape = data.shape();
+
+        if axis >= shape.len() {
+            return Err(JsValue::from_str(&format!(
+                "axis {} is out of bounds for array of dimension {}",
+                axis, shape.len()
+            )));
+        }
+
+        let ax = ndarray::Axis(axis);
+        let result = data.map_axis(ax, |lane| {
+            if lane.iter().any(|&x| x != 0.0) { 1.0 } else { 0.0 }
+        });
+
+        if keepdims.unwrap_or(false) {
+            let mut new_shape = result.shape().to_vec();
+            new_shape.insert(axis, 1);
+            CpuBackend::reshape(&rumpy_cpu::CpuArray::from_ndarray(result), new_shape)
+                .map(NDArray::new)
+                .map_err(|e| JsValue::from_str(&e.to_string()))
+        } else {
+            Ok(NDArray::new(rumpy_cpu::CpuArray::from_ndarray(result)))
+        }
+    }
+}
+
+// ============ Einsum (Einstein summation) ============
+
+/// Einstein summation convention
+///
+/// Performs tensor contractions, transposes, and reductions using
+/// Einstein notation. Critical for attention mechanisms.
+///
+/// Supported patterns:
+/// - "ij,jk->ik" : matrix multiplication
+/// - "bij,bjk->bik" : batched matrix multiplication
+/// - "bhqk,bhkd->bhqd" : attention (Q @ K.T @ V)
+/// - "ij->ji" : transpose
+/// - "ij->" : sum all
+/// - "ij->i" : sum over j
+/// - "ii->" : trace
+/// - "...ij,...jk->...ik" : batched matmul with ellipsis
+///
+/// # Arguments
+/// * `subscripts` - Einstein summation subscripts (e.g., "ij,jk->ik")
+/// * `a` - First input array
+/// * `b` - Optional second input array
+#[wasm_bindgen]
+pub fn einsum(subscripts: &str, a: &NDArray, b: Option<NDArray>) -> Result<NDArray, JsValue> {
+    // Parse subscripts
+    let parts: Vec<&str> = subscripts.split("->").collect();
+    if parts.len() > 2 {
+        return Err(JsValue::from_str("einsum: invalid subscripts format"));
+    }
+
+    let inputs_str = parts[0];
+    let output_str = if parts.len() == 2 { parts[1].trim() } else { "" };
+
+    let input_parts: Vec<&str> = inputs_str.split(',').map(|s| s.trim()).collect();
+
+    match (input_parts.len(), &b) {
+        (1, None) => {
+            // Single array operation
+            einsum_unary(input_parts[0], output_str, a)
+        }
+        (2, Some(b_arr)) => {
+            // Binary operation
+            einsum_binary(input_parts[0], input_parts[1], output_str, a, b_arr)
+        }
+        (1, Some(_)) => {
+            Err(JsValue::from_str("einsum: subscripts specify one input but two arrays provided"))
+        }
+        (2, None) => {
+            Err(JsValue::from_str("einsum: subscripts specify two inputs but only one array provided"))
+        }
+        _ => {
+            Err(JsValue::from_str("einsum: only 1 or 2 input arrays supported"))
+        }
+    }
+}
+
+/// Unary einsum operations (transpose, trace, sum, etc.)
+fn einsum_unary(input: &str, output: &str, a: &NDArray) -> Result<NDArray, JsValue> {
+    let a_data = a.inner.as_ndarray();
+    let a_shape = a_data.shape();
+
+    // Handle ellipsis - expand to concrete indices
+    let (input_expanded, output_expanded) = expand_ellipsis(input, output, a_shape.len())?;
+
+    // Build index mappings
+    let input_chars: Vec<char> = input_expanded.chars().collect();
+    let output_chars: Vec<char> = output_expanded.chars().collect();
+
+    if input_chars.len() != a_shape.len() {
+        return Err(JsValue::from_str(&format!(
+            "einsum: input subscript '{}' has {} indices but array has {} dimensions",
+            input, input_chars.len(), a_shape.len()
+        )));
+    }
+
+    // Check for trace (repeated indices in input)
+    let mut char_counts: std::collections::HashMap<char, usize> = std::collections::HashMap::new();
+    for &c in &input_chars {
+        *char_counts.entry(c).or_insert(0) += 1;
+    }
+
+    // Simple transpose case: all indices appear once and output reorders them
+    if char_counts.values().all(|&c| c == 1) && output_chars.len() == input_chars.len() {
+        // Build permutation
+        let mut perm = Vec::with_capacity(output_chars.len());
+        for oc in &output_chars {
+            let pos = input_chars.iter().position(|&ic| ic == *oc)
+                .ok_or_else(|| JsValue::from_str(&format!(
+                    "einsum: output index '{}' not in input",
+                    oc
+                )))?;
+            perm.push(pos);
+        }
+        let permuted = a_data.clone().permuted_axes(perm);
+        return Ok(NDArray::new(rumpy_cpu::CpuArray::from_ndarray(permuted.to_owned())));
+    }
+
+    // Sum reduction case: some indices dropped
+    if char_counts.values().all(|&c| c == 1) && output_chars.len() < input_chars.len() {
+        // Find which axes to sum over
+        let sum_axes: Vec<usize> = input_chars.iter().enumerate()
+            .filter(|(_, c)| !output_chars.contains(c))
+            .map(|(i, _)| i)
+            .collect();
+
+        let mut result = a_data.to_owned();
+        // Sum in reverse order to maintain correct axis indices
+        for &ax in sum_axes.iter().rev() {
+            result = result.sum_axis(ndarray::Axis(ax));
+        }
+
+        // May need to transpose if output order differs
+        if !output_chars.is_empty() {
+            let remaining_chars: Vec<char> = input_chars.iter()
+                .filter(|c| output_chars.contains(c))
+                .cloned()
+                .collect();
+
+            if remaining_chars != output_chars {
+                let mut perm = Vec::with_capacity(output_chars.len());
+                for oc in &output_chars {
+                    let pos = remaining_chars.iter().position(|&c| c == *oc)
+                        .ok_or_else(|| JsValue::from_str("einsum: internal permutation error"))?;
+                    perm.push(pos);
+                }
+                result = result.permuted_axes(perm).to_owned();
+            }
+        }
+
+        return Ok(NDArray::new(rumpy_cpu::CpuArray::from_ndarray(result)));
+    }
+
+    // Trace case: "ii->" or similar
+    if char_counts.values().any(|&c| c == 2) {
+        // Find repeated index
+        let repeated: Vec<char> = char_counts.iter()
+            .filter(|(_, &c)| c == 2)
+            .map(|(&k, _)| k)
+            .collect();
+
+        if repeated.len() == 1 && a_shape.len() == 2 {
+            // Simple 2D trace
+            let trace_char = repeated[0];
+            let positions: Vec<usize> = input_chars.iter().enumerate()
+                .filter(|(_, &c)| c == trace_char)
+                .map(|(i, _)| i)
+                .collect();
+
+            if positions.len() == 2 && a_shape[positions[0]] == a_shape[positions[1]] {
+                let n = a_shape[0].min(a_shape[1]);
+                let trace: f64 = (0..n).map(|i| a_data[[i, i]]).sum();
+                return Ok(NDArray::new(rumpy_cpu::CpuArray::from_f64_vec(vec![trace], vec![])
+                    .map_err(|e| JsValue::from_str(&e.to_string()))?));
+            }
+        }
+    }
+
+    Err(JsValue::from_str(&format!(
+        "einsum: unsupported unary operation '{}->{}'",
+        input, output
+    )))
+}
+
+/// Binary einsum operations (matmul, batched matmul, contractions)
+fn einsum_binary(input_a: &str, input_b: &str, output: &str, a: &NDArray, b: &NDArray) -> Result<NDArray, JsValue> {
+    let a_data = a.inner.as_ndarray();
+    let b_data = b.inner.as_ndarray();
+    let a_shape = a_data.shape();
+    let b_shape = b_data.shape();
+
+    // Handle ellipsis
+    let max_dims = a_shape.len().max(b_shape.len());
+    let (input_a_exp, output_exp_a) = expand_ellipsis(input_a, output, a_shape.len())?;
+    let (input_b_exp, output_exp_b) = expand_ellipsis(input_b, output, b_shape.len())?;
+    let output_exp = if !output_exp_a.is_empty() { output_exp_a } else { output_exp_b };
+
+    let a_chars: Vec<char> = input_a_exp.chars().collect();
+    let b_chars: Vec<char> = input_b_exp.chars().collect();
+    let out_chars: Vec<char> = output_exp.chars().collect();
+
+    if a_chars.len() != a_shape.len() {
+        return Err(JsValue::from_str(&format!(
+            "einsum: input subscript '{}' has {} indices but array has {} dimensions",
+            input_a, a_chars.len(), a_shape.len()
+        )));
+    }
+    if b_chars.len() != b_shape.len() {
+        return Err(JsValue::from_str(&format!(
+            "einsum: input subscript '{}' has {} indices but array has {} dimensions",
+            input_b, b_chars.len(), b_shape.len()
+        )));
+    }
+
+    // Special case: standard matmul "ij,jk->ik"
+    if a_chars == ['i', 'j'] && b_chars == ['j', 'k'] && out_chars == ['i', 'k'] {
+        return CpuBackend::matmul(&a.inner, &b.inner)
+            .map(NDArray::new)
+            .map_err(|e| JsValue::from_str(&e.to_string()));
+    }
+
+    // Special case: batched matmul "bij,bjk->bik"
+    if a_chars.len() == 3 && b_chars.len() == 3 && out_chars.len() == 3 {
+        let (batch_a, i_a, j_a) = (a_chars[0], a_chars[1], a_chars[2]);
+        let (batch_b, j_b, k_b) = (b_chars[0], b_chars[1], b_chars[2]);
+        let (batch_o, i_o, k_o) = (out_chars[0], out_chars[1], out_chars[2]);
+
+        if batch_a == batch_b && batch_b == batch_o &&
+           i_a == i_o && k_b == k_o && j_a == j_b {
+            // This is batched matmul
+            let batch_size = a_shape[0];
+            let m = a_shape[1];
+            let k = a_shape[2];
+            let n = b_shape[2];
+
+            if b_shape[0] != batch_size || b_shape[1] != k {
+                return Err(JsValue::from_str("einsum: dimension mismatch for batched matmul"));
+            }
+
+            let mut result = vec![0.0; batch_size * m * n];
+
+            for batch in 0..batch_size {
+                for i in 0..m {
+                    for j in 0..n {
+                        let mut sum = 0.0;
+                        for kk in 0..k {
+                            let a_idx = batch * m * k + i * k + kk;
+                            let b_idx = batch * k * n + kk * n + j;
+                            sum += a_data.as_slice().unwrap()[a_idx] * b_data.as_slice().unwrap()[b_idx];
+                        }
+                        result[batch * m * n + i * n + j] = sum;
+                    }
+                }
+            }
+
+            return Ok(NDArray::new(rumpy_cpu::CpuArray::from_f64_vec(result, vec![batch_size, m, n])
+                .map_err(|e| JsValue::from_str(&e.to_string()))?));
+        }
+    }
+
+    // Special case: 4D batched matmul "bhqk,bhkd->bhqd" (attention)
+    if a_chars.len() == 4 && b_chars.len() == 4 && out_chars.len() == 4 {
+        // Check if it's standard attention pattern
+        if a_chars[0] == b_chars[0] && a_chars[0] == out_chars[0] &&  // batch
+           a_chars[1] == b_chars[1] && a_chars[1] == out_chars[1] &&  // head
+           a_chars[2] == out_chars[2] &&  // query dim preserved
+           a_chars[3] == b_chars[2] &&    // contraction dim
+           b_chars[3] == out_chars[3] {   // value dim preserved
+
+            let (batch, heads, q_len, k_len) = (a_shape[0], a_shape[1], a_shape[2], a_shape[3]);
+            let v_dim = b_shape[3];
+
+            if b_shape[0] != batch || b_shape[1] != heads || b_shape[2] != k_len {
+                return Err(JsValue::from_str("einsum: dimension mismatch for attention"));
+            }
+
+            let mut result = vec![0.0; batch * heads * q_len * v_dim];
+            let a_flat = a_data.as_slice().ok_or_else(|| JsValue::from_str("array not contiguous"))?;
+            let b_flat = b_data.as_slice().ok_or_else(|| JsValue::from_str("array not contiguous"))?;
+
+            for b_idx in 0..batch {
+                for h in 0..heads {
+                    for q in 0..q_len {
+                        for v in 0..v_dim {
+                            let mut sum = 0.0;
+                            for k in 0..k_len {
+                                let a_offset = b_idx * heads * q_len * k_len + h * q_len * k_len + q * k_len + k;
+                                let b_offset = b_idx * heads * k_len * v_dim + h * k_len * v_dim + k * v_dim + v;
+                                sum += a_flat[a_offset] * b_flat[b_offset];
+                            }
+                            let out_offset = b_idx * heads * q_len * v_dim + h * q_len * v_dim + q * v_dim + v;
+                            result[out_offset] = sum;
+                        }
+                    }
+                }
+            }
+
+            return Ok(NDArray::new(rumpy_cpu::CpuArray::from_f64_vec(result, vec![batch, heads, q_len, v_dim])
+                .map_err(|e| JsValue::from_str(&e.to_string()))?));
+        }
+    }
+
+    // General case: identify contraction, batch, and output indices
+    // Find indices that appear in both inputs (contraction candidates)
+    let mut contraction_chars: Vec<char> = Vec::new();
+    let mut batch_chars: Vec<char> = Vec::new();
+
+    for &c in &a_chars {
+        if b_chars.contains(&c) {
+            if out_chars.contains(&c) {
+                batch_chars.push(c);
+            } else {
+                contraction_chars.push(c);
+            }
+        }
+    }
+
+    // For now, handle simple cases where we can reshape to matmul
+    // This is a simplified general einsum - full implementation would need more work
+
+    Err(JsValue::from_str(&format!(
+        "einsum: pattern '{},{}->{}' not yet supported. Supported: ij,jk->ik, bij,bjk->bik, bhqk,bhkd->bhqd",
+        input_a, input_b, output
+    )))
+}
+
+/// Expand ellipsis notation to concrete indices
+fn expand_ellipsis(input: &str, output: &str, ndim: usize) -> Result<(String, String), JsValue> {
+    if !input.contains("...") {
+        return Ok((input.to_string(), output.to_string()));
+    }
+
+    let non_ellipsis_count = input.chars().filter(|&c| c != '.').count();
+    let ellipsis_dims = ndim.saturating_sub(non_ellipsis_count);
+
+    // Generate unique chars for ellipsis dimensions
+    let ellipsis_chars: String = (0..ellipsis_dims)
+        .map(|i| (b'A' + i as u8) as char)
+        .collect();
+
+    let expanded_input = input.replace("...", &ellipsis_chars);
+    let expanded_output = output.replace("...", &ellipsis_chars);
+
+    Ok((expanded_input, expanded_output))
+}
+
+// ============ Conv2d and ConvTranspose2d ============
+
+/// 2D Convolution
+///
+/// Performs 2D convolution of input with kernel.
+/// Input shape: (N, C_in, H, W)
+/// Kernel shape: (C_out, C_in, kH, kW)
+/// Output shape: (N, C_out, H_out, W_out)
+///
+/// # Arguments
+/// * `input` - Input tensor (N, C_in, H, W)
+/// * `kernel` - Convolution kernel (C_out, C_in, kH, kW)
+/// * `stride` - Stride [stride_h, stride_w]
+/// * `padding` - Padding [pad_h, pad_w]
+#[wasm_bindgen]
+pub fn conv2d(
+    input: &NDArray,
+    kernel: &NDArray,
+    stride: Vec<usize>,
+    padding: Vec<usize>,
+) -> Result<NDArray, JsValue> {
+    let input_data = input.inner.as_ndarray();
+    let kernel_data = kernel.inner.as_ndarray();
+
+    let input_shape = input_data.shape();
+    let kernel_shape = kernel_data.shape();
+
+    if input_shape.len() != 4 {
+        return Err(JsValue::from_str("conv2d: input must be 4D (N, C_in, H, W)"));
+    }
+    if kernel_shape.len() != 4 {
+        return Err(JsValue::from_str("conv2d: kernel must be 4D (C_out, C_in, kH, kW)"));
+    }
+    if stride.len() != 2 {
+        return Err(JsValue::from_str("conv2d: stride must have 2 elements [stride_h, stride_w]"));
+    }
+    if padding.len() != 2 {
+        return Err(JsValue::from_str("conv2d: padding must have 2 elements [pad_h, pad_w]"));
+    }
+
+    let (n, c_in, h_in, w_in) = (input_shape[0], input_shape[1], input_shape[2], input_shape[3]);
+    let (c_out, c_in_k, k_h, k_w) = (kernel_shape[0], kernel_shape[1], kernel_shape[2], kernel_shape[3]);
+    let (stride_h, stride_w) = (stride[0], stride[1]);
+    let (pad_h, pad_w) = (padding[0], padding[1]);
+
+    if c_in != c_in_k {
+        return Err(JsValue::from_str(&format!(
+            "conv2d: input channels {} doesn't match kernel channels {}",
+            c_in, c_in_k
+        )));
+    }
+
+    let h_out = (h_in + 2 * pad_h - k_h) / stride_h + 1;
+    let w_out = (w_in + 2 * pad_w - k_w) / stride_w + 1;
+
+    let input_flat = input_data.as_slice().ok_or_else(|| JsValue::from_str("input not contiguous"))?;
+    let kernel_flat = kernel_data.as_slice().ok_or_else(|| JsValue::from_str("kernel not contiguous"))?;
+
+    let mut output = vec![0.0; n * c_out * h_out * w_out];
+
+    for batch in 0..n {
+        for co in 0..c_out {
+            for oh in 0..h_out {
+                for ow in 0..w_out {
+                    let mut sum = 0.0;
+
+                    for ci in 0..c_in {
+                        for kh in 0..k_h {
+                            for kw in 0..k_w {
+                                let ih = oh * stride_h + kh;
+                                let iw = ow * stride_w + kw;
+
+                                // Check padding bounds
+                                if ih >= pad_h && ih < h_in + pad_h && iw >= pad_w && iw < w_in + pad_w {
+                                    let actual_h = ih - pad_h;
+                                    let actual_w = iw - pad_w;
+
+                                    let input_idx = batch * c_in * h_in * w_in + ci * h_in * w_in + actual_h * w_in + actual_w;
+                                    let kernel_idx = co * c_in_k * k_h * k_w + ci * k_h * k_w + kh * k_w + kw;
+
+                                    sum += input_flat[input_idx] * kernel_flat[kernel_idx];
+                                }
+                            }
+                        }
+                    }
+
+                    let out_idx = batch * c_out * h_out * w_out + co * h_out * w_out + oh * w_out + ow;
+                    output[out_idx] = sum;
+                }
+            }
+        }
+    }
+
+    Ok(NDArray::new(rumpy_cpu::CpuArray::from_f64_vec(output, vec![n, c_out, h_out, w_out])
+        .map_err(|e| JsValue::from_str(&e.to_string()))?))
+}
+
+/// 2D Transposed Convolution (Deconvolution)
+///
+/// Performs transposed 2D convolution, often used for upsampling.
+/// Input shape: (N, C_in, H, W)
+/// Kernel shape: (C_in, C_out, kH, kW)  -- note C_in, C_out order differs from conv2d
+/// Output shape: (N, C_out, H_out, W_out)
+///
+/// # Arguments
+/// * `input` - Input tensor (N, C_in, H, W)
+/// * `kernel` - Convolution kernel (C_in, C_out, kH, kW)
+/// * `stride` - Stride [stride_h, stride_w]
+/// * `padding` - Padding [pad_h, pad_w]
+/// * `output_padding` - Additional padding for output [out_pad_h, out_pad_w]
+#[wasm_bindgen(js_name = convTranspose2d)]
+pub fn conv_transpose_2d(
+    input: &NDArray,
+    kernel: &NDArray,
+    stride: Vec<usize>,
+    padding: Vec<usize>,
+    output_padding: Vec<usize>,
+) -> Result<NDArray, JsValue> {
+    let input_data = input.inner.as_ndarray();
+    let kernel_data = kernel.inner.as_ndarray();
+
+    let input_shape = input_data.shape();
+    let kernel_shape = kernel_data.shape();
+
+    if input_shape.len() != 4 {
+        return Err(JsValue::from_str("conv_transpose2d: input must be 4D (N, C_in, H, W)"));
+    }
+    if kernel_shape.len() != 4 {
+        return Err(JsValue::from_str("conv_transpose2d: kernel must be 4D (C_in, C_out, kH, kW)"));
+    }
+
+    let (n, c_in, h_in, w_in) = (input_shape[0], input_shape[1], input_shape[2], input_shape[3]);
+    let (c_in_k, c_out, k_h, k_w) = (kernel_shape[0], kernel_shape[1], kernel_shape[2], kernel_shape[3]);
+    let (stride_h, stride_w) = (stride[0], stride[1]);
+    let (pad_h, pad_w) = (padding[0], padding[1]);
+    let (out_pad_h, out_pad_w) = (output_padding.get(0).copied().unwrap_or(0),
+                                   output_padding.get(1).copied().unwrap_or(0));
+
+    if c_in != c_in_k {
+        return Err(JsValue::from_str(&format!(
+            "conv_transpose2d: input channels {} doesn't match kernel channels {}",
+            c_in, c_in_k
+        )));
+    }
+
+    // Output size formula for transposed conv
+    let h_out = (h_in - 1) * stride_h - 2 * pad_h + k_h + out_pad_h;
+    let w_out = (w_in - 1) * stride_w - 2 * pad_w + k_w + out_pad_w;
+
+    let input_flat = input_data.as_slice().ok_or_else(|| JsValue::from_str("input not contiguous"))?;
+    let kernel_flat = kernel_data.as_slice().ok_or_else(|| JsValue::from_str("kernel not contiguous"))?;
+
+    let mut output = vec![0.0; n * c_out * h_out * w_out];
+
+    // Transposed convolution: scatter input values weighted by kernel
+    for batch in 0..n {
+        for ci in 0..c_in {
+            for ih in 0..h_in {
+                for iw in 0..w_in {
+                    let input_val = input_flat[batch * c_in * h_in * w_in + ci * h_in * w_in + ih * w_in + iw];
+
+                    for co in 0..c_out {
+                        for kh in 0..k_h {
+                            for kw in 0..k_w {
+                                let oh = ih * stride_h + kh;
+                                let ow = iw * stride_w + kw;
+
+                                // Apply padding
+                                if oh >= pad_h && oh < h_out + pad_h && ow >= pad_w && ow < w_out + pad_w {
+                                    let actual_oh = oh - pad_h;
+                                    let actual_ow = ow - pad_w;
+
+                                    if actual_oh < h_out && actual_ow < w_out {
+                                        let kernel_idx = ci * c_out * k_h * k_w + co * k_h * k_w + kh * k_w + kw;
+                                        let out_idx = batch * c_out * h_out * w_out + co * h_out * w_out + actual_oh * w_out + actual_ow;
+
+                                        output[out_idx] += input_val * kernel_flat[kernel_idx];
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    Ok(NDArray::new(rumpy_cpu::CpuArray::from_f64_vec(output, vec![n, c_out, h_out, w_out])
+        .map_err(|e| JsValue::from_str(&e.to_string()))?))
+}
+
+// ============ Interpolate/Resize ============
+
+/// Bilinear interpolation for resizing 2D images
+///
+/// Input shape: (N, C, H, W) or (H, W)
+/// Resizes spatial dimensions to target size using bilinear interpolation.
+///
+/// # Arguments
+/// * `size` - Target size [target_h, target_w]
+#[wasm_bindgen]
+impl NDArray {
+    pub fn interpolate(&self, size: Vec<usize>) -> Result<NDArray, JsValue> {
+        if size.len() != 2 {
+            return Err(JsValue::from_str("interpolate: size must have 2 elements [target_h, target_w]"));
+        }
+
+        let data = self.inner.as_ndarray();
+        let shape = data.shape();
+        let (target_h, target_w) = (size[0], size[1]);
+
+        match shape.len() {
+            2 => {
+                // Simple 2D case
+                let (h_in, w_in) = (shape[0], shape[1]);
+                let result = bilinear_interpolate_2d(
+                    data.as_slice().ok_or_else(|| JsValue::from_str("array not contiguous"))?,
+                    h_in, w_in,
+                    target_h, target_w,
+                );
+                Ok(NDArray::new(rumpy_cpu::CpuArray::from_f64_vec(result, vec![target_h, target_w])
+                    .map_err(|e| JsValue::from_str(&e.to_string()))?))
+            }
+            4 => {
+                // (N, C, H, W) case
+                let (n, c, h_in, w_in) = (shape[0], shape[1], shape[2], shape[3]);
+                let flat = data.as_slice().ok_or_else(|| JsValue::from_str("array not contiguous"))?;
+
+                let mut result = Vec::with_capacity(n * c * target_h * target_w);
+
+                for batch in 0..n {
+                    for ch in 0..c {
+                        let offset = batch * c * h_in * w_in + ch * h_in * w_in;
+                        let slice = &flat[offset..offset + h_in * w_in];
+                        let interpolated = bilinear_interpolate_2d(slice, h_in, w_in, target_h, target_w);
+                        result.extend(interpolated);
+                    }
+                }
+
+                Ok(NDArray::new(rumpy_cpu::CpuArray::from_f64_vec(result, vec![n, c, target_h, target_w])
+                    .map_err(|e| JsValue::from_str(&e.to_string()))?))
+            }
+            _ => Err(JsValue::from_str("interpolate: input must be 2D (H, W) or 4D (N, C, H, W)"))
+        }
+    }
+
+    /// Alias for interpolate
+    pub fn resize(&self, size: Vec<usize>) -> Result<NDArray, JsValue> {
+        self.interpolate(size)
+    }
+}
+
+/// Bilinear interpolation helper for a single 2D image
+fn bilinear_interpolate_2d(
+    input: &[f64],
+    h_in: usize,
+    w_in: usize,
+    h_out: usize,
+    w_out: usize,
+) -> Vec<f64> {
+    let mut output = vec![0.0; h_out * w_out];
+
+    let scale_h = h_in as f64 / h_out as f64;
+    let scale_w = w_in as f64 / w_out as f64;
+
+    for oh in 0..h_out {
+        for ow in 0..w_out {
+            // Map output coord to input coord (align_corners=false style)
+            let ih_f = (oh as f64 + 0.5) * scale_h - 0.5;
+            let iw_f = (ow as f64 + 0.5) * scale_w - 0.5;
+
+            let ih0 = ih_f.floor() as i64;
+            let iw0 = iw_f.floor() as i64;
+            let ih1 = ih0 + 1;
+            let iw1 = iw0 + 1;
+
+            let dh = ih_f - ih0 as f64;
+            let dw = iw_f - iw0 as f64;
+
+            // Clamp indices
+            let ih0c = ih0.clamp(0, h_in as i64 - 1) as usize;
+            let ih1c = ih1.clamp(0, h_in as i64 - 1) as usize;
+            let iw0c = iw0.clamp(0, w_in as i64 - 1) as usize;
+            let iw1c = iw1.clamp(0, w_in as i64 - 1) as usize;
+
+            // Bilinear interpolation
+            let v00 = input[ih0c * w_in + iw0c];
+            let v01 = input[ih0c * w_in + iw1c];
+            let v10 = input[ih1c * w_in + iw0c];
+            let v11 = input[ih1c * w_in + iw1c];
+
+            let value = v00 * (1.0 - dh) * (1.0 - dw)
+                      + v01 * (1.0 - dh) * dw
+                      + v10 * dh * (1.0 - dw)
+                      + v11 * dh * dw;
+
+            output[oh * w_out + ow] = value;
+        }
+    }
+
+    output
+}
