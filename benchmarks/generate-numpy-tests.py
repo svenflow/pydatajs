@@ -668,7 +668,7 @@ add_test("asType float32", "asType",
 
 add_test("asType int64", "asType",
          {"data": arr_cast.tolist(), "shape": [3], "dtype": "int64"},
-         np.round(arr_cast))  # Matches our int64 implementation
+         np.trunc(arr_cast))  # NumPy astype(int64) truncates toward zero
 
 # Test dequantizeLinear
 # ONNX DequantizeLinear: output = (input - zero_point) * scale
@@ -686,6 +686,70 @@ add_test("gather (embedding lookup)", "gather",
          {"data": embedding.flatten().tolist(), "shape": [1000, 256],
           "indices": token_ids.tolist(), "axis": 0},
          np.take(embedding, token_ids.astype(int), axis=0))
+
+
+# ==================== EDGE CASE TESTS ====================
+
+# Edge cases for unary ops: NaN, inf, -inf, zeros
+edge_cases = np.array([np.nan, np.inf, -np.inf, 0.0, -0.0, 1e308, 1e-308, -1e308], dtype=np.float64)
+
+add_test("tanh edge cases", "tanhArr",
+         {"data": edge_cases.tolist(), "shape": [8]},
+         np.tanh(edge_cases))
+
+add_test("neg edge cases", "negArr",
+         {"data": edge_cases.tolist(), "shape": [8]},
+         -edge_cases)
+
+add_test("sinh edge cases", "sinhArr",
+         {"data": edge_cases.tolist(), "shape": [8]},
+         np.sinh(edge_cases))
+
+add_test("cosh edge cases", "coshArr",
+         {"data": edge_cases.tolist(), "shape": [8]},
+         np.cosh(edge_cases))
+
+# Sinh/cosh overflow test (values > 710 overflow to inf)
+overflow_test = np.array([700, 710, 720, -700, -710, -720], dtype=np.float64)
+add_test("sinh overflow", "sinhArr",
+         {"data": overflow_test.tolist(), "shape": [6]},
+         np.sinh(overflow_test))
+
+add_test("cosh overflow", "coshArr",
+         {"data": overflow_test.tolist(), "shape": [6]},
+         np.cosh(overflow_test))
+
+# asType int64 with negative numbers and edge cases
+arr_cast_negative = np.array([1.5, -1.5, 2.7, -2.7, 0.9, -0.9], dtype=np.float64)
+add_test("asType int64 negative", "asType",
+         {"data": arr_cast_negative.tolist(), "shape": [6], "dtype": "int64"},
+         np.trunc(arr_cast_negative))
+
+# asType int32 with overflow clamping
+arr_cast_overflow = np.array([1e15, -1e15, 2147483647, -2147483648, 2147483650, -2147483650], dtype=np.float64)
+# Note: NumPy actually wraps on overflow, but we clamp for safety
+# Our implementation clamps to i32 range
+i32_min, i32_max = -2147483648, 2147483647
+expected_clamped = np.clip(np.trunc(arr_cast_overflow), i32_min, i32_max)
+add_test("asType int32 overflow", "asType",
+         {"data": arr_cast_overflow.tolist(), "shape": [6], "dtype": "int32"},
+         expected_clamped)
+
+# broadcastTo edge cases: 0-dim, multi-1-dim
+arr_bc_multi = np.array([[1], [2], [3]], dtype=np.float64)  # shape (3, 1)
+add_test("broadcastTo (3,1) -> (3,4)", "broadcastTo",
+         {"data": arr_bc_multi.flatten().tolist(), "shape": [3, 1], "target_shape": [3, 4]},
+         np.broadcast_to(arr_bc_multi, (3, 4)))
+
+# dequantizeLinear with edge scale/zero_point
+arr_dq_edge = np.array([0, 127, 255], dtype=np.float64)
+add_test("dequantizeLinear scale=0.5", "dequantizeLinear",
+         {"data": arr_dq_edge.tolist(), "shape": [3], "scale": 0.5, "zero_point": 127.0},
+         (arr_dq_edge - 127.0) * 0.5)
+
+add_test("dequantizeLinear scale=0.001", "dequantizeLinear",
+         {"data": arr_dq_edge.tolist(), "shape": [3], "scale": 0.001, "zero_point": 0.0},
+         arr_dq_edge * 0.001)
 
 
 class NumpyEncoder(json.JSONEncoder):

@@ -344,6 +344,48 @@
                     result = arr.indexCopy(inputs.axis, indices, src);
                     break;
                 }
+                // Sprint 6: Transformer inference ops
+                case 'tanhArr': {
+                    const arr = createArray(inputs.data, inputs.shape);
+                    result = rumpy.tanhArr(arr);  // Module function, not method
+                    break;
+                }
+                case 'negArr': {
+                    const arr = createArray(inputs.data, inputs.shape);
+                    result = rumpy.negArr(arr);  // Module function, not method
+                    break;
+                }
+                case 'sinhArr': {
+                    const arr = createArray(inputs.data, inputs.shape);
+                    result = rumpy.sinhArr(arr);  // Module function, not method
+                    break;
+                }
+                case 'coshArr': {
+                    const arr = createArray(inputs.data, inputs.shape);
+                    result = rumpy.coshArr(arr);  // Module function, not method
+                    break;
+                }
+                case 'broadcastTo': {
+                    const arr = createArray(inputs.data, inputs.shape);
+                    result = arr.broadcastTo(inputs.target_shape);  // This IS a method
+                    break;
+                }
+                case 'asType': {
+                    const arr = createArray(inputs.data, inputs.shape);
+                    result = arr.asType(inputs.dtype);  // This IS a method
+                    break;
+                }
+                case 'dequantizeLinear': {
+                    const arr = createArray(inputs.data, inputs.shape);
+                    result = arr.dequantizeLinear(inputs.scale, inputs.zero_point);  // This IS a method
+                    break;
+                }
+                case 'gather': {
+                    const arr = createArray(inputs.data, inputs.shape);
+                    const indices = createArray(inputs.indices, [inputs.indices.length]);
+                    result = arr.take(indices, inputs.axis);  // gather is alias for take
+                    break;
+                }
                 default:
                     throw new Error(`Unknown op: ${op}`);
             }

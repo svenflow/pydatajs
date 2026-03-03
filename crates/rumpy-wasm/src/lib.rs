@@ -3542,13 +3542,19 @@ impl NDArray {
                 Ok(NDArray::new(rumpy_cpu::CpuArray::from_ndarray(result)))
             }
             "int64" | "i64" | "long" => {
+                // NumPy astype(int64) truncates toward zero, not rounds
                 let data = self.inner.as_ndarray();
-                let result = data.mapv(|x| x.round());
+                let result = data.mapv(|x| x.trunc());
                 Ok(NDArray::new(rumpy_cpu::CpuArray::from_ndarray(result)))
             }
             "int32" | "i32" | "int" => {
+                // NumPy astype(int32) truncates toward zero with overflow clamping
                 let data = self.inner.as_ndarray();
-                let result = data.mapv(|x| (x.round() as i32) as f64);
+                let result = data.mapv(|x| {
+                    let truncated = x.trunc();
+                    // Clamp to i32 range to avoid undefined behavior
+                    truncated.clamp(i32::MIN as f64, i32::MAX as f64)
+                });
                 Ok(NDArray::new(rumpy_cpu::CpuArray::from_ndarray(result)))
             }
             _ => Err(JsValue::from_str(&format!("Unsupported dtype: {}", dtype)))
