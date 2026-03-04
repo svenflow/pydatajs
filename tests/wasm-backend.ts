@@ -189,6 +189,238 @@ export class WasmBackend implements Backend {
     return this.wrap(this.wasm.squareArr(this.unwrap(arr)));
   }
 
+  // ============ Math - Unary (Extended) ============
+
+  arcsinh(arr: IFaceNDArray): IFaceNDArray {
+    const result = Array.from(arr.data).map(Math.asinh);
+    return this.array(result, arr.shape);
+  }
+
+  arccosh(arr: IFaceNDArray): IFaceNDArray {
+    const result = Array.from(arr.data).map(Math.acosh);
+    return this.array(result, arr.shape);
+  }
+
+  arctanh(arr: IFaceNDArray): IFaceNDArray {
+    const result = Array.from(arr.data).map(Math.atanh);
+    return this.array(result, arr.shape);
+  }
+
+  expm1(arr: IFaceNDArray): IFaceNDArray {
+    const result = Array.from(arr.data).map(Math.expm1);
+    return this.array(result, arr.shape);
+  }
+
+  log1p(arr: IFaceNDArray): IFaceNDArray {
+    const result = Array.from(arr.data).map(Math.log1p);
+    return this.array(result, arr.shape);
+  }
+
+  trunc(arr: IFaceNDArray): IFaceNDArray {
+    const result = Array.from(arr.data).map(Math.trunc);
+    return this.array(result, arr.shape);
+  }
+
+  fix(arr: IFaceNDArray): IFaceNDArray {
+    // Same as trunc - round toward zero
+    return this.trunc(arr);
+  }
+
+  sinc(arr: IFaceNDArray): IFaceNDArray {
+    const result = Array.from(arr.data).map((x) => {
+      if (x === 0) return 1;
+      const px = Math.PI * x;
+      return Math.sin(px) / px;
+    });
+    return this.array(result, arr.shape);
+  }
+
+  deg2rad(arr: IFaceNDArray): IFaceNDArray {
+    const result = Array.from(arr.data).map((x) => x * Math.PI / 180);
+    return this.array(result, arr.shape);
+  }
+
+  rad2deg(arr: IFaceNDArray): IFaceNDArray {
+    const result = Array.from(arr.data).map((x) => x * 180 / Math.PI);
+    return this.array(result, arr.shape);
+  }
+
+  heaviside(arr: IFaceNDArray, h0: number): IFaceNDArray {
+    const result = Array.from(arr.data).map((x) => {
+      if (x < 0) return 0;
+      if (x === 0) return h0;
+      return 1;
+    });
+    return this.array(result, arr.shape);
+  }
+
+  signbit(arr: IFaceNDArray): IFaceNDArray {
+    const result = Array.from(arr.data).map((x) => {
+      if (Number.isNaN(x)) return Object.is(x, -0) || (1 / x < 0) ? 1 : 0;
+      return x < 0 || Object.is(x, -0) ? 1 : 0;
+    });
+    return this.array(result, arr.shape);
+  }
+
+  // ============ Math - Decomposition ============
+
+  modf(arr: IFaceNDArray): { frac: IFaceNDArray; integ: IFaceNDArray } {
+    const frac = new Float64Array(arr.data.length);
+    const integ = new Float64Array(arr.data.length);
+    for (let i = 0; i < arr.data.length; i++) {
+      const x = arr.data[i];
+      integ[i] = Math.trunc(x);
+      frac[i] = x - integ[i];
+    }
+    return {
+      frac: this.array(Array.from(frac), arr.shape),
+      integ: this.array(Array.from(integ), arr.shape),
+    };
+  }
+
+  frexp(arr: IFaceNDArray): { mantissa: IFaceNDArray; exponent: IFaceNDArray } {
+    const mantissa = new Float64Array(arr.data.length);
+    const exponent = new Float64Array(arr.data.length);
+    for (let i = 0; i < arr.data.length; i++) {
+      const x = arr.data[i];
+      if (x === 0 || !Number.isFinite(x) || Number.isNaN(x)) {
+        mantissa[i] = x;
+        exponent[i] = 0;
+      } else {
+        const exp = Math.floor(Math.log2(Math.abs(x))) + 1;
+        mantissa[i] = x / Math.pow(2, exp);
+        exponent[i] = exp;
+      }
+    }
+    return {
+      mantissa: this.array(Array.from(mantissa), arr.shape),
+      exponent: this.array(Array.from(exponent), arr.shape),
+    };
+  }
+
+  ldexp(arr: IFaceNDArray, exp: IFaceNDArray): IFaceNDArray {
+    if (arr.data.length !== exp.data.length) {
+      throw new Error('Arrays must have the same length');
+    }
+    const result = new Float64Array(arr.data.length);
+    for (let i = 0; i < arr.data.length; i++) {
+      result[i] = arr.data[i] * Math.pow(2, exp.data[i]);
+    }
+    return this.array(Array.from(result), arr.shape);
+  }
+
+  divmod(a: IFaceNDArray, b: IFaceNDArray): { quotient: IFaceNDArray; remainder: IFaceNDArray } {
+    if (a.data.length !== b.data.length) {
+      throw new Error('Arrays must have the same length');
+    }
+    const quotient = new Float64Array(a.data.length);
+    const remainder = new Float64Array(a.data.length);
+    for (let i = 0; i < a.data.length; i++) {
+      quotient[i] = Math.floor(a.data[i] / b.data[i]);
+      // Python-style modulo
+      const r = a.data[i] % b.data[i];
+      remainder[i] = r !== 0 && Math.sign(r) !== Math.sign(b.data[i]) ? r + b.data[i] : r;
+    }
+    return {
+      quotient: this.array(Array.from(quotient), a.shape),
+      remainder: this.array(Array.from(remainder), a.shape),
+    };
+  }
+
+  // ============ Math - Binary (Extended) ============
+
+  mod(a: IFaceNDArray, b: IFaceNDArray): IFaceNDArray {
+    const result = new Float64Array(a.data.length);
+    for (let i = 0; i < a.data.length; i++) {
+      const r = a.data[i] % b.data[i];
+      result[i] = r !== 0 && Math.sign(r) !== Math.sign(b.data[i]) ? r + b.data[i] : r;
+    }
+    return this.array(Array.from(result), a.shape);
+  }
+
+  fmod(a: IFaceNDArray, b: IFaceNDArray): IFaceNDArray {
+    const result = new Float64Array(a.data.length);
+    for (let i = 0; i < a.data.length; i++) {
+      result[i] = a.data[i] % b.data[i];
+    }
+    return this.array(Array.from(result), a.shape);
+  }
+
+  remainder(a: IFaceNDArray, b: IFaceNDArray): IFaceNDArray {
+    return this.mod(a, b);
+  }
+
+  copysign(a: IFaceNDArray, b: IFaceNDArray): IFaceNDArray {
+    const result = new Float64Array(a.data.length);
+    for (let i = 0; i < a.data.length; i++) {
+      result[i] = Math.abs(a.data[i]) * Math.sign(b.data[i]);
+    }
+    return this.array(Array.from(result), a.shape);
+  }
+
+  hypot(a: IFaceNDArray, b: IFaceNDArray): IFaceNDArray {
+    const result = new Float64Array(a.data.length);
+    for (let i = 0; i < a.data.length; i++) {
+      result[i] = Math.hypot(a.data[i], b.data[i]);
+    }
+    return this.array(Array.from(result), a.shape);
+  }
+
+  arctan2(a: IFaceNDArray, b: IFaceNDArray): IFaceNDArray {
+    const result = new Float64Array(a.data.length);
+    for (let i = 0; i < a.data.length; i++) {
+      result[i] = Math.atan2(a.data[i], b.data[i]);
+    }
+    return this.array(Array.from(result), a.shape);
+  }
+
+  logaddexp(a: IFaceNDArray, b: IFaceNDArray): IFaceNDArray {
+    const result = new Float64Array(a.data.length);
+    for (let i = 0; i < a.data.length; i++) {
+      const mx = Math.max(a.data[i], b.data[i]);
+      if (mx === -Infinity) {
+        result[i] = -Infinity;
+      } else {
+        result[i] = mx + Math.log(Math.exp(a.data[i] - mx) + Math.exp(b.data[i] - mx));
+      }
+    }
+    return this.array(Array.from(result), a.shape);
+  }
+
+  logaddexp2(a: IFaceNDArray, b: IFaceNDArray): IFaceNDArray {
+    const result = new Float64Array(a.data.length);
+    const log2 = Math.log(2);
+    for (let i = 0; i < a.data.length; i++) {
+      const mx = Math.max(a.data[i], b.data[i]);
+      if (mx === -Infinity) {
+        result[i] = -Infinity;
+      } else {
+        result[i] = mx + Math.log(Math.pow(2, a.data[i] - mx) + Math.pow(2, b.data[i] - mx)) / log2;
+      }
+    }
+    return this.array(Array.from(result), a.shape);
+  }
+
+  fmax(a: IFaceNDArray, b: IFaceNDArray): IFaceNDArray {
+    const result = new Float64Array(a.data.length);
+    for (let i = 0; i < a.data.length; i++) {
+      if (Number.isNaN(a.data[i])) result[i] = b.data[i];
+      else if (Number.isNaN(b.data[i])) result[i] = a.data[i];
+      else result[i] = Math.max(a.data[i], b.data[i]);
+    }
+    return this.array(Array.from(result), a.shape);
+  }
+
+  fmin(a: IFaceNDArray, b: IFaceNDArray): IFaceNDArray {
+    const result = new Float64Array(a.data.length);
+    for (let i = 0; i < a.data.length; i++) {
+      if (Number.isNaN(a.data[i])) result[i] = b.data[i];
+      else if (Number.isNaN(b.data[i])) result[i] = a.data[i];
+      else result[i] = Math.min(a.data[i], b.data[i]);
+    }
+    return this.array(Array.from(result), a.shape);
+  }
+
   // ============ Math - Binary ============
 
   add(a: IFaceNDArray, b: IFaceNDArray): IFaceNDArray {

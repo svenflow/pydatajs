@@ -76,6 +76,79 @@ export interface Backend {
   reciprocal(arr: NDArray): NDArray;
   square(arr: NDArray): NDArray;
 
+  // ============ Math - Unary (Extended) ============
+  arcsinh(arr: NDArray): NDArray;
+  arccosh(arr: NDArray): NDArray;
+  arctanh(arr: NDArray): NDArray;
+  expm1(arr: NDArray): NDArray;
+  log1p(arr: NDArray): NDArray;
+  trunc(arr: NDArray): NDArray;
+  fix(arr: NDArray): NDArray;  // alias for trunc (round toward zero)
+  sinc(arr: NDArray): NDArray;
+  deg2rad(arr: NDArray): NDArray;
+  rad2deg(arr: NDArray): NDArray;
+  heaviside(arr: NDArray, h0: number): NDArray;
+  signbit(arr: NDArray): NDArray;  // 1.0 if sign bit set, 0.0 otherwise
+
+  // ============ Math - Decomposition ============
+  modf(arr: NDArray): { frac: NDArray; integ: NDArray };  // fractional and integral parts
+  frexp(arr: NDArray): { mantissa: NDArray; exponent: NDArray };  // mantissa and exponent
+  ldexp(arr: NDArray, exp: NDArray): NDArray;  // mantissa * 2^exp
+  divmod(a: NDArray, b: NDArray): { quotient: NDArray; remainder: NDArray };  // floor division and mod
+
+  // ============ Math - Binary (Extended) ============
+  mod(a: NDArray, b: NDArray): NDArray;
+  fmod(a: NDArray, b: NDArray): NDArray;
+  remainder(a: NDArray, b: NDArray): NDArray;
+  copysign(a: NDArray, b: NDArray): NDArray;
+  hypot(a: NDArray, b: NDArray): NDArray;
+  arctan2(a: NDArray, b: NDArray): NDArray;
+  logaddexp(a: NDArray, b: NDArray): NDArray;
+  logaddexp2(a: NDArray, b: NDArray): NDArray;
+  fmax(a: NDArray, b: NDArray): NDArray;
+  fmin(a: NDArray, b: NDArray): NDArray;
+
+  // ============ Comparison ============
+  equal(a: NDArray, b: NDArray): NDArray;
+  notEqual(a: NDArray, b: NDArray): NDArray;
+  less(a: NDArray, b: NDArray): NDArray;
+  lessEqual(a: NDArray, b: NDArray): NDArray;
+  greater(a: NDArray, b: NDArray): NDArray;
+  greaterEqual(a: NDArray, b: NDArray): NDArray;
+  isnan(arr: NDArray): NDArray;
+  isinf(arr: NDArray): NDArray;
+  isfinite(arr: NDArray): NDArray;
+
+  // ============ Set Operations ============
+  setdiff1d(a: NDArray, b: NDArray): NDArray;
+  union1d(a: NDArray, b: NDArray): NDArray;
+  intersect1d(a: NDArray, b: NDArray): NDArray;
+  isin(element: NDArray, testElements: NDArray): NDArray;
+
+  // ============ Array Manipulation (Extended) ============
+  insert(arr: NDArray, index: number, values: NDArray | number, axis?: number): NDArray;
+  deleteArr(arr: NDArray, index: number | number[], axis?: number): NDArray;
+  append(arr: NDArray, values: NDArray, axis?: number): NDArray;
+  atleast1d(arr: NDArray): NDArray;
+  atleast2d(arr: NDArray): NDArray;
+  atleast3d(arr: NDArray): NDArray;
+  countNonzero(arr: NDArray, axis?: number): NDArray | number;
+
+  // ============ Advanced Linalg ============
+  matrixPower(arr: NDArray, n: number): NDArray;
+  kron(a: NDArray, b: NDArray): NDArray;
+
+  // ============ Polynomial ============
+  polyval(p: NDArray, x: NDArray): NDArray;
+  polyadd(a: NDArray, b: NDArray): NDArray;
+  polymul(a: NDArray, b: NDArray): NDArray;
+
+  // ============ Interpolation ============
+  interp(x: NDArray, xp: NDArray, fp: NDArray): NDArray;
+
+  // ============ Histogram ============
+  bincount(x: NDArray, weights?: NDArray, minlength?: number): NDArray;
+
   // ============ Math - Binary ============
   add(a: NDArray, b: NDArray): NDArray;
   sub(a: NDArray, b: NDArray): NDArray;
