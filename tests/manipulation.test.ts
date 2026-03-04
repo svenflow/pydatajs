@@ -393,5 +393,463 @@ export function manipulationTests(getBackend: () => Backend) {
         expect(result.shape).toEqual([2, 2]);
       });
     });
+
+    // ============ Differences ============
+
+    describe('diff', () => {
+      it('computes first difference', () => {
+        const arr = B.array([1, 2, 4, 7, 11], [5]);
+        const result = B.diff(arr);
+        expect(result.shape).toEqual([4]);
+        expect(result.toArray()).toEqual([1, 2, 3, 4]);
+      });
+
+      it('computes second difference', () => {
+        const arr = B.array([1, 2, 4, 7, 11], [5]);
+        const result = B.diff(arr, 2);
+        expect(result.shape).toEqual([3]);
+        expect(result.toArray()).toEqual([1, 1, 1]);
+      });
+
+      it('computes diff along axis', () => {
+        const arr = B.array([1, 2, 3, 4, 5, 6], [2, 3]);
+        const result = B.diff(arr, 1, 1);
+        expect(result.shape).toEqual([2, 2]);
+        expect(result.toArray()).toEqual([1, 1, 1, 1]);
+      });
+    });
+
+    describe('gradient', () => {
+      it('computes gradient of 1D array', () => {
+        const arr = B.array([1, 2, 4, 7, 11], [5]);
+        const result = B.gradient(arr);
+        expect(result.shape).toEqual([5]);
+        // Forward: 2-1=1, Central: (4-1)/2=1.5, (7-2)/2=2.5, (11-4)/2=3.5, Backward: 11-7=4
+        const data = result.toArray();
+        expect(approxEq(data[0], 1, DEFAULT_TOL)).toBe(true);
+        expect(approxEq(data[1], 1.5, DEFAULT_TOL)).toBe(true);
+        expect(approxEq(data[2], 2.5, DEFAULT_TOL)).toBe(true);
+        expect(approxEq(data[3], 3.5, DEFAULT_TOL)).toBe(true);
+        expect(approxEq(data[4], 4, DEFAULT_TOL)).toBe(true);
+      });
+    });
+
+    describe('ediff1d', () => {
+      it('computes differences on flattened array', () => {
+        const arr = B.array([1, 2, 3, 4, 5, 6], [2, 3]);
+        const result = B.ediff1d(arr);
+        expect(result.shape).toEqual([5]);
+        expect(result.toArray()).toEqual([1, 1, 1, 1, 1]);
+      });
+    });
+
+    // ============ Cross Product ============
+
+    describe('cross', () => {
+      it('computes 3D cross product', () => {
+        const a = B.array([1, 0, 0], [3]);
+        const b = B.array([0, 1, 0], [3]);
+        const result = B.cross(a, b);
+        expect(result.shape).toEqual([3]);
+        expect(result.toArray()).toEqual([0, 0, 1]);
+      });
+
+      it('computes another cross product', () => {
+        const a = B.array([1, 2, 3], [3]);
+        const b = B.array([4, 5, 6], [3]);
+        const result = B.cross(a, b);
+        // (2*6-3*5, 3*4-1*6, 1*5-2*4) = (-3, 6, -3)
+        expect(result.toArray()).toEqual([-3, 6, -3]);
+      });
+    });
+
+    // ============ Statistics ============
+
+    describe('cov', () => {
+      it('computes covariance matrix', () => {
+        // Two variables, 4 observations each
+        const x = B.array([1, 2, 3, 4, 5, 6, 7, 8], [2, 4]);
+        const result = B.cov(x);
+        expect(result.shape).toEqual([2, 2]);
+        // Each row has variance 5/3 (sample var)
+        const data = result.toArray();
+        expect(approxEq(data[0], 5 / 3, RELAXED_TOL)).toBe(true);
+        expect(approxEq(data[3], 5 / 3, RELAXED_TOL)).toBe(true);
+      });
+
+      it('computes covariance between two vectors', () => {
+        const x = B.array([1, 2, 3], [3]);
+        const y = B.array([4, 5, 6], [3]);
+        const result = B.cov(x, y);
+        expect(result.shape).toEqual([2, 2]);
+      });
+    });
+
+    describe('corrcoef', () => {
+      it('computes correlation coefficients', () => {
+        const x = B.array([1, 2, 3, 4, 5, 6, 7, 8], [2, 4]);
+        const result = B.corrcoef(x);
+        expect(result.shape).toEqual([2, 2]);
+        // Diagonal should be 1
+        const data = result.toArray();
+        expect(approxEq(data[0], 1, RELAXED_TOL)).toBe(true);
+        expect(approxEq(data[3], 1, RELAXED_TOL)).toBe(true);
+      });
+    });
+
+    // ============ Convolution ============
+
+    describe('convolve', () => {
+      it('computes full convolution', () => {
+        const a = B.array([1, 2, 3], [3]);
+        const v = B.array([0, 1, 0.5], [3]);
+        const result = B.convolve(a, v, 'full');
+        expect(result.shape).toEqual([5]);
+        // [0*1, 1*1+0*2, 0.5*1+1*2+0*3, 0.5*2+1*3, 0.5*3] = [0, 1, 2.5, 4, 1.5]
+        const data = result.toArray();
+        expect(approxEq(data[0], 0, DEFAULT_TOL)).toBe(true);
+        expect(approxEq(data[1], 1, DEFAULT_TOL)).toBe(true);
+        expect(approxEq(data[2], 2.5, DEFAULT_TOL)).toBe(true);
+      });
+
+      it('computes same mode convolution', () => {
+        const a = B.array([1, 2, 3, 4, 5], [5]);
+        const v = B.array([1, 1, 1], [3]);
+        const result = B.convolve(a, v, 'same');
+        expect(result.shape).toEqual([5]);
+      });
+
+      it('computes valid mode convolution', () => {
+        const a = B.array([1, 2, 3, 4, 5], [5]);
+        const v = B.array([1, 1, 1], [3]);
+        const result = B.convolve(a, v, 'valid');
+        expect(result.shape).toEqual([3]);
+        expect(result.toArray()).toEqual([6, 9, 12]);
+      });
+    });
+
+    describe('correlate', () => {
+      it('computes correlation', () => {
+        const a = B.array([1, 2, 3, 4, 5], [5]);
+        const v = B.array([1, 1, 1], [3]);
+        const result = B.correlate(a, v, 'valid');
+        expect(result.shape).toEqual([3]);
+        expect(result.toArray()).toEqual([6, 9, 12]);
+      });
+    });
+
+    // ============ Matrix Creation ============
+
+    describe('identity', () => {
+      it('creates identity matrix', () => {
+        const result = B.identity(3);
+        expect(result.shape).toEqual([3, 3]);
+        expect(result.toArray()).toEqual([1, 0, 0, 0, 1, 0, 0, 0, 1]);
+      });
+    });
+
+    describe('tril', () => {
+      it('extracts lower triangle', () => {
+        const arr = B.array([1, 2, 3, 4, 5, 6, 7, 8, 9], [3, 3]);
+        const result = B.tril(arr);
+        expect(result.toArray()).toEqual([1, 0, 0, 4, 5, 0, 7, 8, 9]);
+      });
+
+      it('extracts lower triangle with k=1', () => {
+        const arr = B.array([1, 2, 3, 4, 5, 6, 7, 8, 9], [3, 3]);
+        const result = B.tril(arr, 1);
+        expect(result.toArray()).toEqual([1, 2, 0, 4, 5, 6, 7, 8, 9]);
+      });
+    });
+
+    describe('triu', () => {
+      it('extracts upper triangle', () => {
+        const arr = B.array([1, 2, 3, 4, 5, 6, 7, 8, 9], [3, 3]);
+        const result = B.triu(arr);
+        expect(result.toArray()).toEqual([1, 2, 3, 0, 5, 6, 0, 0, 9]);
+      });
+
+      it('extracts upper triangle with k=-1', () => {
+        const arr = B.array([1, 2, 3, 4, 5, 6, 7, 8, 9], [3, 3]);
+        const result = B.triu(arr, -1);
+        expect(result.toArray()).toEqual([1, 2, 3, 4, 5, 6, 0, 8, 9]);
+      });
+    });
+
+    // ============ Grid Creation ============
+
+    describe('meshgrid', () => {
+      it('creates coordinate matrices', () => {
+        const x = B.array([1, 2, 3], [3]);
+        const y = B.array([4, 5], [2]);
+        const { X, Y } = B.meshgrid(x, y);
+        expect(X.shape).toEqual([2, 3]);
+        expect(Y.shape).toEqual([2, 3]);
+        expect(X.toArray()).toEqual([1, 2, 3, 1, 2, 3]);
+        expect(Y.toArray()).toEqual([4, 4, 4, 5, 5, 5]);
+      });
+    });
+
+    describe('logspace', () => {
+      it('creates log-spaced array', () => {
+        const result = B.logspace(0, 2, 3);
+        expect(result.shape).toEqual([3]);
+        const data = result.toArray();
+        expect(approxEq(data[0], 1, DEFAULT_TOL)).toBe(true);
+        expect(approxEq(data[1], 10, DEFAULT_TOL)).toBe(true);
+        expect(approxEq(data[2], 100, DEFAULT_TOL)).toBe(true);
+      });
+
+      it('uses custom base', () => {
+        const result = B.logspace(0, 3, 4, 2);
+        const data = result.toArray();
+        expect(approxEq(data[0], 1, DEFAULT_TOL)).toBe(true);
+        expect(approxEq(data[1], 2, DEFAULT_TOL)).toBe(true);
+        expect(approxEq(data[2], 4, DEFAULT_TOL)).toBe(true);
+        expect(approxEq(data[3], 8, DEFAULT_TOL)).toBe(true);
+      });
+    });
+
+    describe('geomspace', () => {
+      it('creates geometrically-spaced array', () => {
+        const result = B.geomspace(1, 1000, 4);
+        expect(result.shape).toEqual([4]);
+        const data = result.toArray();
+        expect(approxEq(data[0], 1, DEFAULT_TOL)).toBe(true);
+        expect(approxEq(data[1], 10, DEFAULT_TOL)).toBe(true);
+        expect(approxEq(data[2], 100, DEFAULT_TOL)).toBe(true);
+        expect(approxEq(data[3], 1000, DEFAULT_TOL)).toBe(true);
+      });
+    });
+
+    // ============ Stacking Shortcuts ============
+
+    describe('vstack', () => {
+      it('stacks 1D arrays vertically', () => {
+        const a = B.array([1, 2, 3], [3]);
+        const b = B.array([4, 5, 6], [3]);
+        const result = B.vstack([a, b]);
+        expect(result.shape).toEqual([2, 3]);
+        expect(result.toArray()).toEqual([1, 2, 3, 4, 5, 6]);
+      });
+
+      it('stacks 2D arrays vertically', () => {
+        const a = B.array([1, 2], [1, 2]);
+        const b = B.array([3, 4], [1, 2]);
+        const result = B.vstack([a, b]);
+        expect(result.shape).toEqual([2, 2]);
+      });
+    });
+
+    describe('hstack', () => {
+      it('stacks 1D arrays horizontally', () => {
+        const a = B.array([1, 2], [2]);
+        const b = B.array([3, 4, 5], [3]);
+        const result = B.hstack([a, b]);
+        expect(result.shape).toEqual([5]);
+        expect(result.toArray()).toEqual([1, 2, 3, 4, 5]);
+      });
+
+      it('stacks 2D arrays horizontally', () => {
+        const a = B.array([1, 2, 3, 4], [2, 2]);
+        const b = B.array([5, 6], [2, 1]);
+        const result = B.hstack([a, b]);
+        expect(result.shape).toEqual([2, 3]);
+      });
+    });
+
+    describe('dstack', () => {
+      it('stacks arrays along third axis', () => {
+        const a = B.array([1, 2, 3, 4], [2, 2]);
+        const b = B.array([5, 6, 7, 8], [2, 2]);
+        const result = B.dstack([a, b]);
+        expect(result.shape).toEqual([2, 2, 2]);
+      });
+    });
+
+    // ============ Split Shortcuts ============
+
+    describe('vsplit', () => {
+      it('splits array vertically', () => {
+        const arr = B.array([1, 2, 3, 4, 5, 6], [3, 2]);
+        const parts = B.vsplit(arr, 3);
+        expect(parts.length).toBe(3);
+        expect(parts[0].shape).toEqual([1, 2]);
+      });
+    });
+
+    describe('hsplit', () => {
+      it('splits array horizontally', () => {
+        const arr = B.array([1, 2, 3, 4, 5, 6], [2, 3]);
+        const parts = B.hsplit(arr, 3);
+        expect(parts.length).toBe(3);
+        expect(parts[0].shape).toEqual([2, 1]);
+      });
+
+      it('splits 1D array', () => {
+        const arr = B.array([1, 2, 3, 4, 5, 6], [6]);
+        const parts = B.hsplit(arr, 3);
+        expect(parts.length).toBe(3);
+        expect(parts[0].toArray()).toEqual([1, 2]);
+      });
+    });
+
+    describe('dsplit', () => {
+      it('splits array along third axis', () => {
+        const arr = B.array(Array.from({ length: 12 }, (_, i) => i), [2, 2, 3]);
+        const parts = B.dsplit(arr, 3);
+        expect(parts.length).toBe(3);
+        expect(parts[0].shape).toEqual([2, 2, 1]);
+      });
+    });
+
+    // ============ Array Replication ============
+
+    describe('tile', () => {
+      it('tiles array', () => {
+        const arr = B.array([1, 2], [2]);
+        const result = B.tile(arr, 3);
+        expect(result.shape).toEqual([6]);
+        expect(result.toArray()).toEqual([1, 2, 1, 2, 1, 2]);
+      });
+
+      it('tiles array with multiple reps', () => {
+        const arr = B.array([1, 2, 3, 4], [2, 2]);
+        const result = B.tile(arr, [2, 3]);
+        expect(result.shape).toEqual([4, 6]);
+      });
+    });
+
+    describe('repeat', () => {
+      it('repeats elements', () => {
+        const arr = B.array([1, 2, 3], [3]);
+        const result = B.repeat(arr, 2);
+        expect(result.shape).toEqual([6]);
+        expect(result.toArray()).toEqual([1, 1, 2, 2, 3, 3]);
+      });
+
+      it('repeats along axis', () => {
+        const arr = B.array([1, 2, 3, 4], [2, 2]);
+        const result = B.repeat(arr, 2, 0);
+        expect(result.shape).toEqual([4, 2]);
+      });
+    });
+
+    // ============ Index Finding ============
+
+    describe('nonzero', () => {
+      it('finds non-zero indices', () => {
+        const arr = B.array([0, 1, 0, 2, 3, 0], [6]);
+        const result = B.nonzero(arr);
+        expect(result.length).toBe(1);
+        expect(result[0].toArray()).toEqual([1, 3, 4]);
+      });
+
+      it('finds non-zero indices in 2D', () => {
+        const arr = B.array([1, 0, 0, 2, 0, 3], [2, 3]);
+        const result = B.nonzero(arr);
+        expect(result.length).toBe(2);
+        expect(result[0].toArray()).toEqual([0, 1, 1]); // row indices
+        expect(result[1].toArray()).toEqual([0, 0, 2]); // col indices
+      });
+    });
+
+    describe('argwhere', () => {
+      it('returns indices as rows', () => {
+        const arr = B.array([1, 0, 0, 2, 0, 3], [2, 3]);
+        const result = B.argwhere(arr);
+        expect(result.shape).toEqual([3, 2]);
+        expect(result.toArray()).toEqual([0, 0, 1, 0, 1, 2]);
+      });
+    });
+
+    describe('flatnonzero', () => {
+      it('returns flat indices', () => {
+        const arr = B.array([0, 1, 0, 2, 3, 0], [6]);
+        const result = B.flatnonzero(arr);
+        expect(result.toArray()).toEqual([1, 3, 4]);
+      });
+    });
+
+    // ============ Value Handling ============
+
+    describe('nanToNum', () => {
+      it('replaces NaN with 0', () => {
+        const arr = B.array([1, NaN, 3], [3]);
+        const result = B.nanToNum(arr);
+        expect(result.toArray()).toEqual([1, 0, 3]);
+      });
+
+      it('replaces Inf values', () => {
+        const arr = B.array([1, Infinity, -Infinity], [3]);
+        const result = B.nanToNum(arr, 0, 999, -999);
+        expect(result.toArray()).toEqual([1, 999, -999]);
+      });
+    });
+
+    // ============ Sorting ============
+
+    describe('sort', () => {
+      it('sorts 1D array', () => {
+        const arr = B.array([3, 1, 4, 1, 5, 9, 2, 6], [8]);
+        const result = B.sort(arr);
+        expect(result.toArray()).toEqual([1, 1, 2, 3, 4, 5, 6, 9]);
+      });
+
+      it('sorts 2D array along axis', () => {
+        const arr = B.array([3, 1, 2, 6, 5, 4], [2, 3]);
+        const result = B.sort(arr, 1);
+        expect(result.shape).toEqual([2, 3]);
+        expect(result.toArray()).toEqual([1, 2, 3, 4, 5, 6]);
+      });
+
+      it('handles NaN (sorts to end)', () => {
+        const arr = B.array([3, NaN, 1, 2], [4]);
+        const result = B.sort(arr);
+        const data = result.toArray();
+        expect(data[0]).toBe(1);
+        expect(data[1]).toBe(2);
+        expect(data[2]).toBe(3);
+        expect(Number.isNaN(data[3])).toBe(true);
+      });
+    });
+
+    describe('argsort', () => {
+      it('returns sort indices', () => {
+        const arr = B.array([3, 1, 2], [3]);
+        const result = B.argsort(arr);
+        expect(result.toArray()).toEqual([1, 2, 0]);
+      });
+
+      it('returns sort indices for 2D along axis', () => {
+        const arr = B.array([3, 1, 2, 6, 5, 4], [2, 3]);
+        const result = B.argsort(arr, 1);
+        expect(result.shape).toEqual([2, 3]);
+        expect(result.toArray()).toEqual([1, 2, 0, 2, 1, 0]);
+      });
+    });
+
+    describe('searchsorted', () => {
+      it('finds insertion points', () => {
+        const arr = B.array([1, 2, 3, 4, 5], [5]);
+        expect(B.searchsorted(arr, 3)).toBe(2);
+        expect(B.searchsorted(arr, 3, 'right')).toBe(3);
+      });
+
+      it('finds insertion points for array', () => {
+        const arr = B.array([1, 2, 3, 4, 5], [5]);
+        const v = B.array([0, 3, 6], [3]);
+        const result = B.searchsorted(arr, v) as any;
+        expect(result.toArray()).toEqual([0, 2, 5]);
+      });
+    });
+
+    describe('unique', () => {
+      it('returns unique values sorted', () => {
+        const arr = B.array([3, 1, 2, 1, 3, 2, 4], [7]);
+        const result = B.unique(arr);
+        expect(result.toArray()).toEqual([1, 2, 3, 4]);
+      });
+    });
   });
 }

@@ -156,4 +156,58 @@ export interface Backend {
 
   // ============ Einstein Summation ============
   einsum(subscripts: string, ...operands: NDArray[]): NDArray;
+
+  // ============ Differences ============
+  diff(arr: NDArray, n?: number, axis?: number): NDArray;
+  gradient(arr: NDArray, axis?: number): NDArray;
+  ediff1d(arr: NDArray): NDArray;
+
+  // ============ Cross Product ============
+  cross(a: NDArray, b: NDArray): NDArray;
+
+  // ============ Statistics ============
+  cov(x: NDArray, y?: NDArray): NDArray;
+  corrcoef(x: NDArray, y?: NDArray): NDArray;
+
+  // ============ Convolution ============
+  convolve(a: NDArray, v: NDArray, mode?: 'full' | 'same' | 'valid'): NDArray;
+  correlate(a: NDArray, v: NDArray, mode?: 'full' | 'same' | 'valid'): NDArray;
+
+  // ============ Matrix Creation ============
+  identity(n: number): NDArray;
+  tril(arr: NDArray, k?: number): NDArray;
+  triu(arr: NDArray, k?: number): NDArray;
+
+  // ============ Grid Creation ============
+  meshgrid(x: NDArray, y: NDArray): { X: NDArray; Y: NDArray };
+  logspace(start: number, stop: number, num: number, base?: number): NDArray;
+  geomspace(start: number, stop: number, num: number): NDArray;
+
+  // ============ Stacking Shortcuts ============
+  vstack(arrays: NDArray[]): NDArray;
+  hstack(arrays: NDArray[]): NDArray;
+  dstack(arrays: NDArray[]): NDArray;
+
+  // ============ Split Shortcuts ============
+  vsplit(arr: NDArray, indices: number | number[]): NDArray[];
+  hsplit(arr: NDArray, indices: number | number[]): NDArray[];
+  dsplit(arr: NDArray, indices: number | number[]): NDArray[];
+
+  // ============ Array Replication ============
+  tile(arr: NDArray, reps: number | number[]): NDArray;
+  repeat(arr: NDArray, repeats: number, axis?: number): NDArray;
+
+  // ============ Index Finding ============
+  nonzero(arr: NDArray): NDArray[];
+  argwhere(arr: NDArray): NDArray;
+  flatnonzero(arr: NDArray): NDArray;
+
+  // ============ Value Handling ============
+  nanToNum(arr: NDArray, nan?: number, posInf?: number, negInf?: number): NDArray;
+
+  // ============ Sorting ============
+  sort(arr: NDArray, axis?: number): NDArray;
+  argsort(arr: NDArray, axis?: number): NDArray;
+  searchsorted(arr: NDArray, v: number | NDArray, side?: 'left' | 'right'): NDArray | number;
+  unique(arr: NDArray): NDArray;
 }

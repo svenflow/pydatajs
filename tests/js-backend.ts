@@ -1422,6 +1422,792 @@ export class JsBackend implements Backend {
 
     return new JsNDArray(result, outputShape.length === 0 ? [1] : outputShape);
   }
+
+  // ============ Differences ============
+
+  diff(arr: NDArray, n: number = 1, axis: number = -1): NDArray {
+    const ndim = arr.shape.length;
+    axis = this._normalizeAxis(axis, ndim);
+
+    let result = arr;
+    for (let i = 0; i < n; i++) {
+      result = this._diffOnce(result, axis);
+    }
+    return result;
+  }
+
+  private _diffOnce(arr: NDArray, axis: number): NDArray {
+    const shape = arr.shape;
+    if (shape[axis] < 2) {
+      throw new Error('diff requires at least 2 elements along axis');
+    }
+
+    const newShape = [...shape];
+    newShape[axis] -= 1;
+    const newSize = newShape.reduce((a, b) => a * b, 1);
+    const result = new Float64Array(newSize);
+
+    const srcStrides = this._computeStrides(shape);
+    const dstStrides = this._computeStrides(newShape);
+
+    for (let dstIdx = 0; dstIdx < newSize; dstIdx++) {
+      const coords = new Array(shape.length);
+      let remaining = dstIdx;
+      for (let d = 0; d < shape.length; d++) {
+        coords[d] = Math.floor(remaining / dstStrides[d]);
+        remaining = remaining % dstStrides[d];
+      }
+
+      let srcIdx1 = 0, srcIdx2 = 0;
+      for (let d = 0; d < shape.length; d++) {
+        if (d === axis) {
+          srcIdx1 += (coords[d] + 1) * srcStrides[d];
+          srcIdx2 += coords[d] * srcStrides[d];
+        } else {
+          srcIdx1 += coords[d] * srcStrides[d];
+          srcIdx2 += coords[d] * srcStrides[d];
+        }
+      }
+
+      result[dstIdx] = arr.data[srcIdx1] - arr.data[srcIdx2];
+    }
+
+    return new JsNDArray(result, newShape);
+  }
+
+  gradient(arr: NDArray, axis: number = -1): NDArray {
+    const ndim = arr.shape.length;
+    axis = this._normalizeAxis(axis, ndim);
+    const shape = arr.shape;
+    const axisLen = shape[axis];
+
+    if (axisLen < 2) {
+      throw new Error('gradient requires at least 2 elements along axis');
+    }
+
+    const result = new Float64Array(arr.data.length);
+    const strides = this._computeStrides(shape);
+
+    // For each position, compute central difference (or forward/backward at edges)
+    for (let i = 0; i < arr.data.length; i++) {
+      const coords = new Array(ndim);
+      let remaining = i;
+      for (let d = 0; d < ndim; d++) {
+        coords[d] = Math.floor(remaining / strides[d]);
+        remaining = remaining % strides[d];
+      }
+
+      const axisCoord = coords[axis];
+      let grad: number;
+
+      if (axisCoord === 0) {
+        // Forward difference
+        const nextCoords = [...coords];
+        nextCoords[axis] = 1;
+        let nextIdx = 0;
+        for (let d = 0; d < ndim; d++) nextIdx += nextCoords[d] * strides[d];
+        grad = arr.data[nextIdx] - arr.data[i];
+      } else if (axisCoord === axisLen - 1) {
+        // Backward difference
+        const prevCoords = [...coords];
+        prevCoords[axis] = axisLen - 2;
+        let prevIdx = 0;
+        for (let d = 0; d < ndim; d++) prevIdx += prevCoords[d] * strides[d];
+        grad = arr.data[i] - arr.data[prevIdx];
+      } else {
+        // Central difference
+        const prevCoords = [...coords];
+        const nextCoords = [...coords];
+        prevCoords[axis] = axisCoord - 1;
+        nextCoords[axis] = axisCoord + 1;
+        let prevIdx = 0, nextIdx = 0;
+        for (let d = 0; d < ndim; d++) {
+          prevIdx += prevCoords[d] * strides[d];
+          nextIdx += nextCoords[d] * strides[d];
+        }
+        grad = (arr.data[nextIdx] - arr.data[prevIdx]) / 2;
+      }
+
+      result[i] = grad;
+    }
+
+    return new JsNDArray(result, shape);
+  }
+
+  ediff1d(arr: NDArray): NDArray {
+    const flat = this.flatten(arr);
+    return this.diff(flat, 1, 0);
+  }
+
+  // ============ Cross Product ============
+
+  cross(a: NDArray, b: NDArray): NDArray {
+    // Only supports 3D vectors
+    const aFlat = this.flatten(a);
+    const bFlat = this.flatten(b);
+
+    if (aFlat.data.length !== 3 || bFlat.data.length !== 3) {
+      throw new Error('cross product only supports 3D vectors');
+    }
+
+    const [a1, a2, a3] = aFlat.data;
+    const [b1, b2, b3] = bFlat.data;
+
+    return new JsNDArray(
+      new Float64Array([
+        a2 * b3 - a3 * b2,
+        a3 * b1 - a1 * b3,
+        a1 * b2 - a2 * b1,
+      ]),
+      [3]
+    );
+  }
+
+  // ============ Statistics ============
+
+  cov(x: NDArray, y?: NDArray): NDArray {
+    if (y === undefined) {
+      // Compute covariance matrix for rows of x
+      if (x.shape.length !== 2) {
+        throw new Error('cov requires 2D array when y is not provided');
+      }
+      const [nVars, nObs] = x.shape;
+      const result = new Float64Array(nVars * nVars);
+
+      // Compute means for each row
+      const means = new Float64Array(nVars);
+      for (let i = 0; i < nVars; i++) {
+        let sum = 0;
+        for (let j = 0; j < nObs; j++) {
+          sum += x.data[i * nObs + j];
+        }
+        means[i] = sum / nObs;
+      }
+
+      // Compute covariance matrix
+      for (let i = 0; i < nVars; i++) {
+        for (let j = 0; j < nVars; j++) {
+          let cov = 0;
+          for (let k = 0; k < nObs; k++) {
+            cov += (x.data[i * nObs + k] - means[i]) * (x.data[j * nObs + k] - means[j]);
+          }
+          result[i * nVars + j] = cov / (nObs - 1);
+        }
+      }
+
+      return new JsNDArray(result, [nVars, nVars]);
+    } else {
+      // Compute covariance between x and y (both 1D)
+      const xFlat = this.flatten(x);
+      const yFlat = this.flatten(y);
+
+      if (xFlat.data.length !== yFlat.data.length) {
+        throw new Error('x and y must have same length');
+      }
+
+      const n = xFlat.data.length;
+      const xMean = this.mean(xFlat);
+      const yMean = this.mean(yFlat);
+
+      let cov = 0;
+      for (let i = 0; i < n; i++) {
+        cov += (xFlat.data[i] - xMean) * (yFlat.data[i] - yMean);
+      }
+      cov /= n - 1;
+
+      // Return 2x2 covariance matrix
+      const xVar = this.var(xFlat, 1);
+      const yVar = this.var(yFlat, 1);
+
+      return new JsNDArray(
+        new Float64Array([xVar, cov, cov, yVar]),
+        [2, 2]
+      );
+    }
+  }
+
+  corrcoef(x: NDArray, y?: NDArray): NDArray {
+    const covMatrix = this.cov(x, y);
+    const n = covMatrix.shape[0];
+    const result = new Float64Array(n * n);
+
+    // Correlation = cov[i,j] / sqrt(cov[i,i] * cov[j,j])
+    for (let i = 0; i < n; i++) {
+      for (let j = 0; j < n; j++) {
+        const covIJ = covMatrix.data[i * n + j];
+        const varI = covMatrix.data[i * n + i];
+        const varJ = covMatrix.data[j * n + j];
+        result[i * n + j] = covIJ / Math.sqrt(varI * varJ);
+      }
+    }
+
+    return new JsNDArray(result, [n, n]);
+  }
+
+  // ============ Convolution ============
+
+  convolve(a: NDArray, v: NDArray, mode: 'full' | 'same' | 'valid' = 'full'): NDArray {
+    const aFlat = this.flatten(a);
+    const vFlat = this.flatten(v);
+    const aLen = aFlat.data.length;
+    const vLen = vFlat.data.length;
+
+    let outLen: number;
+    let startIdx: number;
+
+    if (mode === 'full') {
+      outLen = aLen + vLen - 1;
+      startIdx = 0;
+    } else if (mode === 'same') {
+      outLen = aLen;
+      startIdx = Math.floor((vLen - 1) / 2);
+    } else {
+      // valid
+      outLen = Math.max(aLen - vLen + 1, 0);
+      startIdx = vLen - 1;
+    }
+
+    const result = new Float64Array(outLen);
+
+    // Full convolution
+    const fullLen = aLen + vLen - 1;
+    const full = new Float64Array(fullLen);
+
+    for (let i = 0; i < fullLen; i++) {
+      let sum = 0;
+      for (let j = 0; j < vLen; j++) {
+        const aIdx = i - j;
+        if (aIdx >= 0 && aIdx < aLen) {
+          sum += aFlat.data[aIdx] * vFlat.data[j];
+        }
+      }
+      full[i] = sum;
+    }
+
+    // Extract the relevant portion
+    for (let i = 0; i < outLen; i++) {
+      result[i] = full[startIdx + i];
+    }
+
+    return new JsNDArray(result, [outLen]);
+  }
+
+  correlate(a: NDArray, v: NDArray, mode: 'full' | 'same' | 'valid' = 'valid'): NDArray {
+    // Correlation is convolution with reversed v
+    const vFlat = this.flatten(v);
+    const vReversed = new JsNDArray(
+      new Float64Array([...vFlat.data].reverse()),
+      vFlat.shape
+    );
+    return this.convolve(a, vReversed, mode);
+  }
+
+  // ============ Matrix Creation ============
+
+  identity(n: number): NDArray {
+    return this.eye(n);
+  }
+
+  tril(arr: NDArray, k: number = 0): NDArray {
+    if (arr.shape.length !== 2) {
+      throw new Error('tril requires 2D array');
+    }
+    const [rows, cols] = arr.shape;
+    const result = new Float64Array(rows * cols);
+
+    for (let i = 0; i < rows; i++) {
+      for (let j = 0; j < cols; j++) {
+        if (j <= i + k) {
+          result[i * cols + j] = arr.data[i * cols + j];
+        }
+      }
+    }
+
+    return new JsNDArray(result, [rows, cols]);
+  }
+
+  triu(arr: NDArray, k: number = 0): NDArray {
+    if (arr.shape.length !== 2) {
+      throw new Error('triu requires 2D array');
+    }
+    const [rows, cols] = arr.shape;
+    const result = new Float64Array(rows * cols);
+
+    for (let i = 0; i < rows; i++) {
+      for (let j = 0; j < cols; j++) {
+        if (j >= i + k) {
+          result[i * cols + j] = arr.data[i * cols + j];
+        }
+      }
+    }
+
+    return new JsNDArray(result, [rows, cols]);
+  }
+
+  // ============ Grid Creation ============
+
+  meshgrid(x: NDArray, y: NDArray): { X: NDArray; Y: NDArray } {
+    const xFlat = this.flatten(x);
+    const yFlat = this.flatten(y);
+    const nx = xFlat.data.length;
+    const ny = yFlat.data.length;
+
+    const X = new Float64Array(ny * nx);
+    const Y = new Float64Array(ny * nx);
+
+    for (let i = 0; i < ny; i++) {
+      for (let j = 0; j < nx; j++) {
+        X[i * nx + j] = xFlat.data[j];
+        Y[i * nx + j] = yFlat.data[i];
+      }
+    }
+
+    return {
+      X: new JsNDArray(X, [ny, nx]),
+      Y: new JsNDArray(Y, [ny, nx]),
+    };
+  }
+
+  logspace(start: number, stop: number, num: number, base: number = 10): NDArray {
+    const linear = this.linspace(start, stop, num);
+    const result = new Float64Array(num);
+    for (let i = 0; i < num; i++) {
+      result[i] = Math.pow(base, linear.data[i]);
+    }
+    return new JsNDArray(result, [num]);
+  }
+
+  geomspace(start: number, stop: number, num: number): NDArray {
+    if (start === 0 || stop === 0) {
+      throw new Error('geomspace: start and stop must be non-zero');
+    }
+    if ((start < 0) !== (stop < 0)) {
+      throw new Error('geomspace: start and stop must have same sign');
+    }
+
+    const logStart = Math.log(Math.abs(start));
+    const logStop = Math.log(Math.abs(stop));
+    const linear = this.linspace(logStart, logStop, num);
+    const result = new Float64Array(num);
+    const sign = start < 0 ? -1 : 1;
+
+    for (let i = 0; i < num; i++) {
+      result[i] = sign * Math.exp(linear.data[i]);
+    }
+
+    return new JsNDArray(result, [num]);
+  }
+
+  // ============ Stacking Shortcuts ============
+
+  vstack(arrays: NDArray[]): NDArray {
+    // Stack arrays vertically (row-wise)
+    const processed = arrays.map(arr => {
+      if (arr.shape.length === 1) {
+        return this.reshape(arr, [1, arr.shape[0]]);
+      }
+      return arr;
+    });
+    return this.concatenate(processed, 0);
+  }
+
+  hstack(arrays: NDArray[]): NDArray {
+    // Stack arrays horizontally (column-wise)
+    if (arrays[0].shape.length === 1) {
+      return this.concatenate(arrays, 0);
+    }
+    return this.concatenate(arrays, 1);
+  }
+
+  dstack(arrays: NDArray[]): NDArray {
+    // Stack arrays along third axis
+    const processed = arrays.map(arr => {
+      if (arr.shape.length === 1) {
+        return this.reshape(arr, [1, arr.shape[0], 1]);
+      } else if (arr.shape.length === 2) {
+        return this.reshape(arr, [arr.shape[0], arr.shape[1], 1]);
+      }
+      return arr;
+    });
+    return this.concatenate(processed, 2);
+  }
+
+  // ============ Split Shortcuts ============
+
+  vsplit(arr: NDArray, indices: number | number[]): NDArray[] {
+    if (arr.shape.length < 2) {
+      throw new Error('vsplit requires array with at least 2 dimensions');
+    }
+    return this.split(arr, indices, 0);
+  }
+
+  hsplit(arr: NDArray, indices: number | number[]): NDArray[] {
+    if (arr.shape.length === 1) {
+      return this.split(arr, indices, 0);
+    }
+    return this.split(arr, indices, 1);
+  }
+
+  dsplit(arr: NDArray, indices: number | number[]): NDArray[] {
+    if (arr.shape.length < 3) {
+      throw new Error('dsplit requires array with at least 3 dimensions');
+    }
+    return this.split(arr, indices, 2);
+  }
+
+  // ============ Array Replication ============
+
+  tile(arr: NDArray, reps: number | number[]): NDArray {
+    const repsArray = Array.isArray(reps) ? reps : [reps];
+
+    // Pad reps to match arr dimensions
+    const ndim = Math.max(arr.shape.length, repsArray.length);
+    const paddedReps = new Array(ndim - repsArray.length).fill(1).concat(repsArray);
+    const paddedShape = new Array(ndim - arr.shape.length).fill(1).concat(arr.shape);
+
+    // Compute output shape
+    const outShape = paddedShape.map((s, i) => s * paddedReps[i]);
+    const outSize = outShape.reduce((a, b) => a * b, 1);
+    const result = new Float64Array(outSize);
+
+    const outStrides = this._computeStrides(outShape);
+    const srcStrides = this._computeStrides(paddedShape);
+
+    for (let i = 0; i < outSize; i++) {
+      const coords = new Array(ndim);
+      let remaining = i;
+      for (let d = 0; d < ndim; d++) {
+        coords[d] = Math.floor(remaining / outStrides[d]);
+        remaining = remaining % outStrides[d];
+      }
+
+      // Map to source coordinates (modulo original shape)
+      let srcIdx = 0;
+      for (let d = 0; d < ndim; d++) {
+        srcIdx += (coords[d] % paddedShape[d]) * srcStrides[d];
+      }
+
+      result[i] = arr.data[srcIdx];
+    }
+
+    return new JsNDArray(result, outShape);
+  }
+
+  repeat(arr: NDArray, repeats: number, axis?: number): NDArray {
+    if (axis === undefined) {
+      // Repeat on flattened array
+      const flat = this.flatten(arr);
+      const result = new Float64Array(flat.data.length * repeats);
+      for (let i = 0; i < flat.data.length; i++) {
+        for (let j = 0; j < repeats; j++) {
+          result[i * repeats + j] = flat.data[i];
+        }
+      }
+      return new JsNDArray(result, [result.length]);
+    }
+
+    const ndim = arr.shape.length;
+    axis = this._normalizeAxis(axis, ndim);
+
+    const outShape = [...arr.shape];
+    outShape[axis] *= repeats;
+    const outSize = outShape.reduce((a, b) => a * b, 1);
+    const result = new Float64Array(outSize);
+
+    const srcStrides = this._computeStrides(arr.shape);
+    const dstStrides = this._computeStrides(outShape);
+
+    for (let dstIdx = 0; dstIdx < outSize; dstIdx++) {
+      const coords = new Array(ndim);
+      let remaining = dstIdx;
+      for (let d = 0; d < ndim; d++) {
+        coords[d] = Math.floor(remaining / dstStrides[d]);
+        remaining = remaining % dstStrides[d];
+      }
+
+      // Map axis coordinate back to source
+      coords[axis] = Math.floor(coords[axis] / repeats);
+
+      let srcIdx = 0;
+      for (let d = 0; d < ndim; d++) {
+        srcIdx += coords[d] * srcStrides[d];
+      }
+
+      result[dstIdx] = arr.data[srcIdx];
+    }
+
+    return new JsNDArray(result, outShape);
+  }
+
+  // ============ Index Finding ============
+
+  nonzero(arr: NDArray): NDArray[] {
+    const indices: number[][] = Array.from({ length: arr.shape.length }, () => []);
+    const strides = this._computeStrides(arr.shape);
+
+    for (let i = 0; i < arr.data.length; i++) {
+      if (arr.data[i] !== 0) {
+        let remaining = i;
+        for (let d = 0; d < arr.shape.length; d++) {
+          const coord = Math.floor(remaining / strides[d]);
+          remaining = remaining % strides[d];
+          indices[d].push(coord);
+        }
+      }
+    }
+
+    return indices.map(idx => new JsNDArray(new Float64Array(idx), [idx.length]));
+  }
+
+  argwhere(arr: NDArray): NDArray {
+    const indices = this.nonzero(arr);
+    if (indices.length === 0 || indices[0].data.length === 0) {
+      return new JsNDArray(new Float64Array(0), [0, arr.shape.length]);
+    }
+
+    const nNonzero = indices[0].data.length;
+    const ndim = arr.shape.length;
+    const result = new Float64Array(nNonzero * ndim);
+
+    for (let i = 0; i < nNonzero; i++) {
+      for (let d = 0; d < ndim; d++) {
+        result[i * ndim + d] = indices[d].data[i];
+      }
+    }
+
+    return new JsNDArray(result, [nNonzero, ndim]);
+  }
+
+  flatnonzero(arr: NDArray): NDArray {
+    const indices: number[] = [];
+    for (let i = 0; i < arr.data.length; i++) {
+      if (arr.data[i] !== 0) {
+        indices.push(i);
+      }
+    }
+    return new JsNDArray(new Float64Array(indices), [indices.length]);
+  }
+
+  // ============ Value Handling ============
+
+  nanToNum(arr: NDArray, nan: number = 0, posInf?: number, negInf?: number): NDArray {
+    const maxFloat = Number.MAX_VALUE;
+    const pInf = posInf ?? maxFloat;
+    const nInf = negInf ?? -maxFloat;
+
+    const result = new Float64Array(arr.data.length);
+    for (let i = 0; i < arr.data.length; i++) {
+      const v = arr.data[i];
+      if (Number.isNaN(v)) {
+        result[i] = nan;
+      } else if (v === Infinity) {
+        result[i] = pInf;
+      } else if (v === -Infinity) {
+        result[i] = nInf;
+      } else {
+        result[i] = v;
+      }
+    }
+
+    return new JsNDArray(result, arr.shape);
+  }
+
+  // ============ Sorting ============
+
+  sort(arr: NDArray, axis: number = -1): NDArray {
+    const ndim = arr.shape.length;
+    axis = this._normalizeAxis(axis, ndim);
+
+    const result = new Float64Array(arr.data);
+    const shape = arr.shape;
+    const strides = this._computeStrides(shape);
+    const axisLen = shape[axis];
+
+    // Number of 1D subarrays to sort
+    const nSlices = arr.data.length / axisLen;
+
+    // Compute the stride pattern excluding the sort axis
+    const outerShape = shape.filter((_, i) => i !== axis);
+    const outerStrides = outerShape.length > 0 ? this._computeStrides(outerShape) : [1];
+    const outerSize = outerShape.reduce((a, b) => a * b, 1) || 1;
+
+    for (let outerIdx = 0; outerIdx < outerSize; outerIdx++) {
+      // Extract 1D slice
+      const slice = new Float64Array(axisLen);
+      const outerCoords = new Array(outerShape.length);
+      let remaining = outerIdx;
+      for (let d = 0; d < outerShape.length; d++) {
+        outerCoords[d] = Math.floor(remaining / outerStrides[d]);
+        remaining = remaining % outerStrides[d];
+      }
+
+      // Map outer coords to full coords
+      const baseCoords = new Array(ndim);
+      let outerD = 0;
+      for (let d = 0; d < ndim; d++) {
+        if (d === axis) {
+          baseCoords[d] = 0;
+        } else {
+          baseCoords[d] = outerCoords[outerD++];
+        }
+      }
+
+      // Extract slice
+      for (let i = 0; i < axisLen; i++) {
+        const coords = [...baseCoords];
+        coords[axis] = i;
+        let idx = 0;
+        for (let d = 0; d < ndim; d++) {
+          idx += coords[d] * strides[d];
+        }
+        slice[i] = arr.data[idx];
+      }
+
+      // Sort (handling NaN - they go to end)
+      const sorted = Array.from(slice).sort((a, b) => {
+        if (Number.isNaN(a) && Number.isNaN(b)) return 0;
+        if (Number.isNaN(a)) return 1;
+        if (Number.isNaN(b)) return -1;
+        return a - b;
+      });
+
+      // Write back
+      for (let i = 0; i < axisLen; i++) {
+        const coords = [...baseCoords];
+        coords[axis] = i;
+        let idx = 0;
+        for (let d = 0; d < ndim; d++) {
+          idx += coords[d] * strides[d];
+        }
+        result[idx] = sorted[i];
+      }
+    }
+
+    return new JsNDArray(result, shape);
+  }
+
+  argsort(arr: NDArray, axis: number = -1): NDArray {
+    const ndim = arr.shape.length;
+    axis = this._normalizeAxis(axis, ndim);
+
+    const result = new Float64Array(arr.data.length);
+    const shape = arr.shape;
+    const strides = this._computeStrides(shape);
+    const axisLen = shape[axis];
+
+    const outerShape = shape.filter((_, i) => i !== axis);
+    const outerStrides = outerShape.length > 0 ? this._computeStrides(outerShape) : [1];
+    const outerSize = outerShape.reduce((a, b) => a * b, 1) || 1;
+
+    for (let outerIdx = 0; outerIdx < outerSize; outerIdx++) {
+      const outerCoords = new Array(outerShape.length);
+      let remaining = outerIdx;
+      for (let d = 0; d < outerShape.length; d++) {
+        outerCoords[d] = Math.floor(remaining / outerStrides[d]);
+        remaining = remaining % outerStrides[d];
+      }
+
+      const baseCoords = new Array(ndim);
+      let outerD = 0;
+      for (let d = 0; d < ndim; d++) {
+        if (d === axis) {
+          baseCoords[d] = 0;
+        } else {
+          baseCoords[d] = outerCoords[outerD++];
+        }
+      }
+
+      // Create index array and sort by values
+      const indices = Array.from({ length: axisLen }, (_, i) => i);
+      const values = new Array(axisLen);
+
+      for (let i = 0; i < axisLen; i++) {
+        const coords = [...baseCoords];
+        coords[axis] = i;
+        let idx = 0;
+        for (let d = 0; d < ndim; d++) {
+          idx += coords[d] * strides[d];
+        }
+        values[i] = arr.data[idx];
+      }
+
+      indices.sort((a, b) => {
+        const va = values[a], vb = values[b];
+        if (Number.isNaN(va) && Number.isNaN(vb)) return 0;
+        if (Number.isNaN(va)) return 1;
+        if (Number.isNaN(vb)) return -1;
+        return va - vb;
+      });
+
+      // Write indices back
+      for (let i = 0; i < axisLen; i++) {
+        const coords = [...baseCoords];
+        coords[axis] = i;
+        let idx = 0;
+        for (let d = 0; d < ndim; d++) {
+          idx += coords[d] * strides[d];
+        }
+        result[idx] = indices[i];
+      }
+    }
+
+    return new JsNDArray(result, shape);
+  }
+
+  searchsorted(arr: NDArray, v: number | NDArray, side: 'left' | 'right' = 'left'): NDArray | number {
+    const flat = this.flatten(arr);
+    const data = flat.data;
+
+    const search = (val: number): number => {
+      let lo = 0, hi = data.length;
+      while (lo < hi) {
+        const mid = Math.floor((lo + hi) / 2);
+        if (side === 'left') {
+          if (data[mid] < val) lo = mid + 1;
+          else hi = mid;
+        } else {
+          if (data[mid] <= val) lo = mid + 1;
+          else hi = mid;
+        }
+      }
+      return lo;
+    };
+
+    if (typeof v === 'number') {
+      return search(v);
+    } else {
+      const vFlat = this.flatten(v);
+      const result = new Float64Array(vFlat.data.length);
+      for (let i = 0; i < vFlat.data.length; i++) {
+        result[i] = search(vFlat.data[i]);
+      }
+      return new JsNDArray(result, vFlat.shape);
+    }
+  }
+
+  unique(arr: NDArray): NDArray {
+    const flat = this.flatten(arr);
+    const seen = new Set<number>();
+    const result: number[] = [];
+
+    for (let i = 0; i < flat.data.length; i++) {
+      const v = flat.data[i];
+      if (!seen.has(v)) {
+        seen.add(v);
+        result.push(v);
+      }
+    }
+
+    // Sort the result
+    result.sort((a, b) => {
+      if (Number.isNaN(a) && Number.isNaN(b)) return 0;
+      if (Number.isNaN(a)) return 1;
+      if (Number.isNaN(b)) return -1;
+      return a - b;
+    });
+
+    return new JsNDArray(new Float64Array(result), [result.length]);
+  }
 }
 
 export function createJsBackend(): Backend {
