@@ -1607,6 +1607,181 @@ const QR_ORTHOGONALIZE_SHADER = `
   }
 `;
 
+// ============ LU Decomposition Shaders (for det/inv) ============
+// GPU-accelerated LU decomposition with partial pivoting
+// Used for determinant and matrix inverse calculations
+
+// Shader 1: Find pivot row (argmax of column magnitude) - reduction style
+const LU_FIND_PIVOT_SHADER = `
+  @group(0) @binding(0) var<storage, read> A: array<f32>;         // [N, N]
+  @group(0) @binding(1) var<storage, read_write> output: array<f32>; // [numWorkgroups, 2] - (maxVal, maxIdx)
+  @group(0) @binding(2) var<uniform> dims: vec3<u32>;             // N, col, _pad
+
+  var<workgroup> svals: array<f32, 256>;
+  var<workgroup> sidxs: array<u32, 256>;
+
+  @compute @workgroup_size(256)
+  fn main(@builtin(local_invocation_id) lid: vec3<u32>, @builtin(workgroup_id) wid: vec3<u32>) {
+    let N = dims.x;
+    let col = dims.y;
+    let tid = lid.x;
+    let gid = wid.x * 256u + tid;
+    let row = col + gid;  // Search from diagonal down
+
+    // Initialize with current element or -infinity
+    if (row < N) {
+      svals[tid] = abs(A[row * N + col]);
+      sidxs[tid] = row;
+    } else {
+      svals[tid] = -1e30f;
+      sidxs[tid] = col;
+    }
+    workgroupBarrier();
+
+    // Parallel reduction to find max
+    for (var s: u32 = 128u; s > 0u; s = s >> 1u) {
+      if (tid < s) {
+        if (svals[tid + s] > svals[tid]) {
+          svals[tid] = svals[tid + s];
+          sidxs[tid] = sidxs[tid + s];
+        }
+      }
+      workgroupBarrier();
+    }
+
+    // Write workgroup result
+    if (tid == 0u) {
+      output[wid.x * 2u] = svals[0];
+      output[wid.x * 2u + 1u] = f32(sidxs[0]);
+    }
+  }
+`;
+
+// Shader 2: Swap two rows in-place
+const LU_SWAP_ROWS_SHADER = `
+  @group(0) @binding(0) var<storage, read_write> A: array<f32>;   // [N, N]
+  @group(0) @binding(1) var<uniform> dims: vec3<u32>;             // N, row1, row2
+
+  @compute @workgroup_size(256)
+  fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
+    let N = dims.x;
+    let row1 = dims.y;
+    let row2 = dims.z;
+    let col = gid.x;
+
+    if (col >= N || row1 == row2) {
+      return;
+    }
+
+    let idx1 = row1 * N + col;
+    let idx2 = row2 * N + col;
+    let tmp = A[idx1];
+    A[idx1] = A[idx2];
+    A[idx2] = tmp;
+  }
+`;
+
+// Shader 3: LU elimination step - compute multipliers and update submatrix
+const LU_ELIMINATE_SHADER = `
+  @group(0) @binding(0) var<storage, read_write> A: array<f32>;   // [N, N]
+  @group(0) @binding(1) var<uniform> dims: vec3<u32>;             // N, col, _pad
+  @group(0) @binding(2) var<uniform> pivot: f32;                  // A[col, col]
+
+  @compute @workgroup_size(16, 16)
+  fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
+    let N = dims.x;
+    let col = dims.y;
+    let row = col + 1u + gid.y;  // Rows below diagonal
+    let j = col + gid.x;         // Columns from col onwards
+
+    if (row >= N || j >= N) {
+      return;
+    }
+
+    let factor = A[row * N + col] / pivot;
+
+    // Store factor in L part (below diagonal) for j == col
+    if (j == col) {
+      A[row * N + col] = factor;
+    } else {
+      // Update U part (to the right)
+      A[row * N + j] = A[row * N + j] - factor * A[col * N + j];
+    }
+  }
+`;
+
+// Shader 4: Augmented matrix row swap (for inv: [A|I] format, width = 2*N)
+const INV_SWAP_ROWS_SHADER = `
+  @group(0) @binding(0) var<storage, read_write> aug: array<f32>;   // [N, 2*N]
+  @group(0) @binding(1) var<uniform> dims: vec3<u32>;               // N, row1, row2
+
+  @compute @workgroup_size(256)
+  fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
+    let N = dims.x;
+    let row1 = dims.y;
+    let row2 = dims.z;
+    let col = gid.x;
+    let width = N * 2u;
+
+    if (col >= width || row1 == row2) {
+      return;
+    }
+
+    let idx1 = row1 * width + col;
+    let idx2 = row2 * width + col;
+    let tmp = aug[idx1];
+    aug[idx1] = aug[idx2];
+    aug[idx2] = tmp;
+  }
+`;
+
+// Shader 5: Scale row by 1/pivot (for Gauss-Jordan)
+const INV_SCALE_ROW_SHADER = `
+  @group(0) @binding(0) var<storage, read_write> aug: array<f32>;   // [N, 2*N]
+  @group(0) @binding(1) var<uniform> dims: vec2<u32>;               // N, row
+  @group(0) @binding(2) var<uniform> scale: f32;                    // 1/pivot
+
+  @compute @workgroup_size(256)
+  fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
+    let N = dims.x;
+    let row = dims.y;
+    let col = gid.x;
+    let width = N * 2u;
+
+    if (col >= width) {
+      return;
+    }
+
+    let idx = row * width + col;
+    aug[idx] = aug[idx] * scale;
+  }
+`;
+
+// Shader 6: Eliminate column (for Gauss-Jordan: all rows except pivot row)
+const INV_ELIMINATE_SHADER = `
+  @group(0) @binding(0) var<storage, read_write> aug: array<f32>;   // [N, 2*N]
+  @group(0) @binding(1) var<uniform> dims: vec3<u32>;               // N, pivotRow, _pad
+
+  @compute @workgroup_size(16, 16)
+  fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
+    let N = dims.x;
+    let pivotRow = dims.y;
+    let row = gid.y;
+    let col = gid.x;
+    let width = N * 2u;
+
+    if (row >= N || col >= width || row == pivotRow) {
+      return;
+    }
+
+    // factor = aug[row, pivotRow]
+    let factor = aug[row * width + pivotRow];
+
+    // aug[row, col] -= factor * aug[pivotRow, col]
+    aug[row * width + col] = aug[row * width + col] - factor * aug[pivotRow * width + col];
+  }
+`;
+
 // ============ SVD Shaders (One-Sided Jacobi) ============
 // GPU-based SVD using one-sided Jacobi rotations
 // Computes singular values and optionally U, V matrices
@@ -1730,6 +1905,41 @@ const SVD_DEFLATE_SHADER = `
 
     // ATA[i,j] -= eigenvalue * v[i] * v[j]
     ATA[i * N + j] = ATA[i * N + j] - eigenvalue * v[i] * v[j];
+  }
+`;
+
+// ============ Convolution Shader ============
+// 1D convolution computed in parallel on GPU
+// Each output element is sum of a[i-j] * v[j] for valid j
+const CONVOLVE_SHADER = `
+  struct ConvolveParams {
+    aLen: u32,
+    vLen: u32,
+    outLen: u32,
+    _pad: u32,
+  }
+
+  @group(0) @binding(0) var<storage, read> a: array<f32>;
+  @group(0) @binding(1) var<storage, read> v: array<f32>;
+  @group(0) @binding(2) var<storage, read_write> output: array<f32>;
+  @group(0) @binding(3) var<uniform> params: ConvolveParams;
+
+  @compute @workgroup_size(256)
+  fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
+    let i = gid.x;
+    if (i >= params.outLen) {
+      return;
+    }
+
+    var sum: f32 = 0.0;
+    for (var j: u32 = 0u; j < params.vLen; j = j + 1u) {
+      // aIdx = i - j (but we need to handle the full convolution indexing)
+      let aIdx = i32(i) - i32(j);
+      if (aIdx >= 0 && u32(aIdx) < params.aLen) {
+        sum = sum + a[u32(aIdx)] * v[j];
+      }
+    }
+    output[i] = sum;
   }
 `;
 
@@ -7639,10 +7849,33 @@ export class WebGPUBackend implements Backend {
     return sum;
   }
 
+  /**
+   * Determinant using GPU-accelerated LU decomposition
+   *
+   * For n >= 64, uses GPU shaders:
+   * - LU_FIND_PIVOT_SHADER: parallel reduction for pivot selection
+   * - LU_SWAP_ROWS_SHADER: parallel row swapping
+   * - LU_ELIMINATE_SHADER: parallel elimination step
+   *
+   * For smaller matrices, CPU is faster due to kernel launch overhead.
+   */
   det(arr: IFaceNDArray): number {
     if (arr.shape.length !== 2 || arr.shape[0] !== arr.shape[1]) {
       throw new Error('det requires square matrix');
     }
+    const n = arr.shape[0];
+
+    // For small matrices, GPU overhead exceeds benefit
+    // LU decomposition benefits from GPU when n >= 64
+    if (n < 64) {
+      return this.detCPU(arr);
+    }
+
+    // Use GPU-accelerated LU for larger matrices
+    return this.detGPU(arr);
+  }
+
+  private detCPU(arr: IFaceNDArray): number {
     const n = arr.shape[0];
     const lu = new Float64Array(arr.data);
     let det = 1;
@@ -7669,10 +7902,203 @@ export class WebGPUBackend implements Backend {
     return det;
   }
 
+  private detGPU(arr: IFaceNDArray): number {
+    const n = arr.shape[0];
+
+    // Convert to f32 for GPU
+    const luF32 = new Float32Array(n * n);
+    for (let i = 0; i < n * n; i++) luF32[i] = arr.data[i];
+
+    // Create GPU buffer
+    const luBuffer = this.device.createBuffer({
+      size: n * n * 4,
+      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST,
+    });
+    this.device.queue.writeBuffer(luBuffer, 0, luF32);
+
+    // Dimension/parameter buffers
+    const dimsBuffer = this.device.createBuffer({
+      size: 16,
+      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+    });
+    const pivotBuffer = this.device.createBuffer({
+      size: 4,
+      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+    });
+
+    // Get pipelines
+    const findPivotPipeline = this.getOrCreatePipeline('lu_find_pivot', LU_FIND_PIVOT_SHADER);
+    const swapRowsPipeline = this.getOrCreatePipeline('lu_swap_rows', LU_SWAP_ROWS_SHADER);
+    const eliminatePipeline = this.getOrCreatePipeline('lu_eliminate', LU_ELIMINATE_SHADER);
+
+    let det = 1;
+    let signFlips = 0;
+
+    // LU decomposition with partial pivoting
+    for (let col = 0; col < n; col++) {
+      // Step 1: Find pivot row (parallel reduction)
+      const numRows = n - col;
+      const numWorkgroups = Math.ceil(numRows / 256);
+      const pivotPartialsBuffer = this.device.createBuffer({
+        size: numWorkgroups * 8, // [val, idx] per workgroup
+        usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC,
+      });
+
+      this.device.queue.writeBuffer(dimsBuffer, 0, new Uint32Array([n, col, 0, 0]));
+
+      let commandEncoder = this.device.createCommandEncoder();
+      let pass = commandEncoder.beginComputePass();
+      pass.setPipeline(findPivotPipeline);
+      pass.setBindGroup(0, this.device.createBindGroup({
+        layout: findPivotPipeline.getBindGroupLayout(0),
+        entries: [
+          { binding: 0, resource: { buffer: luBuffer } },
+          { binding: 1, resource: { buffer: pivotPartialsBuffer } },
+          { binding: 2, resource: { buffer: dimsBuffer } },
+        ],
+      }));
+      pass.dispatchWorkgroups(numWorkgroups);
+      pass.end();
+
+      // Read back pivot results
+      const stagingBuffer = this.device.createBuffer({
+        size: numWorkgroups * 8,
+        usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST,
+      });
+      commandEncoder.copyBufferToBuffer(pivotPartialsBuffer, 0, stagingBuffer, 0, numWorkgroups * 8);
+      this.device.queue.submit([commandEncoder.finish()]);
+
+      // Synchronous wait (this is unavoidable for LU - each step depends on previous)
+      const arrayBuffer = new ArrayBuffer(numWorkgroups * 8);
+      stagingBuffer.mapAsync(GPUMapMode.READ).then(() => {
+        const mapped = new Float32Array(stagingBuffer.getMappedRange());
+        new Float32Array(arrayBuffer).set(mapped);
+        stagingBuffer.unmap();
+      });
+      // Busy wait for map (not ideal, but needed for sync det())
+      while (stagingBuffer.mapState === 'pending') {
+        // Spin
+      }
+
+      // Find global max from workgroup results
+      const partials = new Float32Array(arrayBuffer);
+      let maxVal = -Infinity;
+      let maxRow = col;
+      for (let w = 0; w < numWorkgroups; w++) {
+        if (partials[w * 2] > maxVal) {
+          maxVal = partials[w * 2];
+          maxRow = Math.round(partials[w * 2 + 1]);
+        }
+      }
+
+      // Step 2: Swap rows if needed (GPU parallel)
+      if (maxRow !== col) {
+        signFlips++;
+        this.device.queue.writeBuffer(dimsBuffer, 0, new Uint32Array([n, col, maxRow, 0]));
+
+        commandEncoder = this.device.createCommandEncoder();
+        pass = commandEncoder.beginComputePass();
+        pass.setPipeline(swapRowsPipeline);
+        pass.setBindGroup(0, this.device.createBindGroup({
+          layout: swapRowsPipeline.getBindGroupLayout(0),
+          entries: [
+            { binding: 0, resource: { buffer: luBuffer } },
+            { binding: 1, resource: { buffer: dimsBuffer } },
+          ],
+        }));
+        pass.dispatchWorkgroups(Math.ceil(n / 256));
+        pass.end();
+        this.device.queue.submit([commandEncoder.finish()]);
+      }
+
+      // Get pivot value
+      const pivotStaging = this.device.createBuffer({
+        size: 4,
+        usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST,
+      });
+      commandEncoder = this.device.createCommandEncoder();
+      commandEncoder.copyBufferToBuffer(luBuffer, (col * n + col) * 4, pivotStaging, 0, 4);
+      this.device.queue.submit([commandEncoder.finish()]);
+
+      pivotStaging.mapAsync(GPUMapMode.READ).then(() => {});
+      while (pivotStaging.mapState === 'pending') {}
+      const pivotVal = new Float32Array(pivotStaging.getMappedRange())[0];
+      pivotStaging.unmap();
+
+      if (Math.abs(pivotVal) < 1e-10) {
+        // Cleanup
+        luBuffer.destroy();
+        dimsBuffer.destroy();
+        pivotBuffer.destroy();
+        pivotPartialsBuffer.destroy();
+        stagingBuffer.destroy();
+        pivotStaging.destroy();
+        return 0;
+      }
+
+      det *= pivotVal;
+
+      // Step 3: Elimination (GPU parallel)
+      if (col < n - 1) {
+        this.device.queue.writeBuffer(dimsBuffer, 0, new Uint32Array([n, col, 0, 0]));
+        this.device.queue.writeBuffer(pivotBuffer, 0, new Float32Array([pivotVal]));
+
+        commandEncoder = this.device.createCommandEncoder();
+        pass = commandEncoder.beginComputePass();
+        pass.setPipeline(eliminatePipeline);
+        pass.setBindGroup(0, this.device.createBindGroup({
+          layout: eliminatePipeline.getBindGroupLayout(0),
+          entries: [
+            { binding: 0, resource: { buffer: luBuffer } },
+            { binding: 1, resource: { buffer: dimsBuffer } },
+            { binding: 2, resource: { buffer: pivotBuffer } },
+          ],
+        }));
+        pass.dispatchWorkgroups(Math.ceil((n - col) / 16), Math.ceil((n - col - 1) / 16));
+        pass.end();
+        this.device.queue.submit([commandEncoder.finish()]);
+      }
+
+      // Cleanup iteration buffers
+      pivotPartialsBuffer.destroy();
+      stagingBuffer.destroy();
+      pivotStaging.destroy();
+    }
+
+    // Cleanup
+    luBuffer.destroy();
+    dimsBuffer.destroy();
+    pivotBuffer.destroy();
+
+    return signFlips % 2 === 0 ? det : -det;
+  }
+
+  /**
+   * Matrix inverse using GPU-accelerated Gauss-Jordan elimination
+   *
+   * For n >= 64, uses GPU shaders:
+   * - INV_SWAP_ROWS_SHADER: parallel row swapping
+   * - INV_SCALE_ROW_SHADER: parallel row scaling
+   * - INV_ELIMINATE_SHADER: parallel elimination
+   *
+   * For smaller matrices, CPU is faster due to kernel launch overhead.
+   */
   inv(arr: IFaceNDArray): IFaceNDArray {
     if (arr.shape.length !== 2 || arr.shape[0] !== arr.shape[1]) {
       throw new Error('inv requires square matrix');
     }
+    const n = arr.shape[0];
+
+    // For small matrices, GPU overhead exceeds benefit
+    if (n < 64) {
+      return this.invCPU(arr);
+    }
+
+    // Use GPU-accelerated Gauss-Jordan for larger matrices
+    return this.invGPU(arr);
+  }
+
+  private invCPU(arr: IFaceNDArray): IFaceNDArray {
     const n = arr.shape[0];
     const aug = new Float64Array(n * n * 2);
     for (let i = 0; i < n; i++) {
@@ -7707,6 +8133,176 @@ export class WebGPUBackend implements Backend {
         result[i * n + j] = aug[i * n * 2 + n + j];
       }
     }
+    return this.createArray(result, [n, n]);
+  }
+
+  private invGPU(arr: IFaceNDArray): IFaceNDArray {
+    const n = arr.shape[0];
+    const width = n * 2;
+
+    // Create augmented matrix [A|I] in f32
+    const augF32 = new Float32Array(n * width);
+    for (let i = 0; i < n; i++) {
+      for (let j = 0; j < n; j++) {
+        augF32[i * width + j] = arr.data[i * n + j];
+        augF32[i * width + n + j] = i === j ? 1 : 0;
+      }
+    }
+
+    // Create GPU buffer
+    const augBuffer = this.device.createBuffer({
+      size: n * width * 4,
+      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST,
+    });
+    this.device.queue.writeBuffer(augBuffer, 0, augF32);
+
+    // Dimension buffers
+    const dimsBuffer = this.device.createBuffer({
+      size: 16,
+      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+    });
+    const scaleBuffer = this.device.createBuffer({
+      size: 4,
+      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+    });
+
+    // Get pipelines
+    const swapRowsPipeline = this.getOrCreatePipeline('inv_swap_rows', INV_SWAP_ROWS_SHADER);
+    const scaleRowPipeline = this.getOrCreatePipeline('inv_scale_row', INV_SCALE_ROW_SHADER);
+    const eliminatePipeline = this.getOrCreatePipeline('inv_eliminate', INV_ELIMINATE_SHADER);
+
+    // Gauss-Jordan elimination
+    for (let i = 0; i < n; i++) {
+      // Find pivot row (CPU for simplicity - small O(n) operation)
+      const colStagingBuffer = this.device.createBuffer({
+        size: (n - i) * 4,
+        usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST,
+      });
+      const commandEncoder1 = this.device.createCommandEncoder();
+      for (let k = i; k < n; k++) {
+        commandEncoder1.copyBufferToBuffer(augBuffer, (k * width + i) * 4, colStagingBuffer, (k - i) * 4, 4);
+      }
+      this.device.queue.submit([commandEncoder1.finish()]);
+
+      colStagingBuffer.mapAsync(GPUMapMode.READ).then(() => {});
+      while (colStagingBuffer.mapState === 'pending') {}
+      const colData = new Float32Array(colStagingBuffer.getMappedRange());
+      let maxRow = i;
+      let maxVal = Math.abs(colData[0]);
+      for (let k = 1; k < n - i; k++) {
+        if (Math.abs(colData[k]) > maxVal) {
+          maxVal = Math.abs(colData[k]);
+          maxRow = i + k;
+        }
+      }
+      colStagingBuffer.unmap();
+      colStagingBuffer.destroy();
+
+      // Swap rows if needed (GPU parallel)
+      if (maxRow !== i) {
+        this.device.queue.writeBuffer(dimsBuffer, 0, new Uint32Array([n, i, maxRow, 0]));
+
+        const commandEncoder2 = this.device.createCommandEncoder();
+        const pass2 = commandEncoder2.beginComputePass();
+        pass2.setPipeline(swapRowsPipeline);
+        pass2.setBindGroup(0, this.device.createBindGroup({
+          layout: swapRowsPipeline.getBindGroupLayout(0),
+          entries: [
+            { binding: 0, resource: { buffer: augBuffer } },
+            { binding: 1, resource: { buffer: dimsBuffer } },
+          ],
+        }));
+        pass2.dispatchWorkgroups(Math.ceil(width / 256));
+        pass2.end();
+        this.device.queue.submit([commandEncoder2.finish()]);
+      }
+
+      // Get pivot value
+      const pivotStagingBuffer = this.device.createBuffer({
+        size: 4,
+        usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST,
+      });
+      const commandEncoder3 = this.device.createCommandEncoder();
+      commandEncoder3.copyBufferToBuffer(augBuffer, (i * width + i) * 4, pivotStagingBuffer, 0, 4);
+      this.device.queue.submit([commandEncoder3.finish()]);
+
+      pivotStagingBuffer.mapAsync(GPUMapMode.READ).then(() => {});
+      while (pivotStagingBuffer.mapState === 'pending') {}
+      const pivotVal = new Float32Array(pivotStagingBuffer.getMappedRange())[0];
+      pivotStagingBuffer.unmap();
+      pivotStagingBuffer.destroy();
+
+      if (Math.abs(pivotVal) < 1e-10) {
+        augBuffer.destroy();
+        dimsBuffer.destroy();
+        scaleBuffer.destroy();
+        throw new Error('Matrix is singular');
+      }
+
+      // Scale row by 1/pivot (GPU parallel)
+      this.device.queue.writeBuffer(dimsBuffer, 0, new Uint32Array([n, i, 0, 0]));
+      this.device.queue.writeBuffer(scaleBuffer, 0, new Float32Array([1 / pivotVal]));
+
+      let commandEncoder = this.device.createCommandEncoder();
+      let pass = commandEncoder.beginComputePass();
+      pass.setPipeline(scaleRowPipeline);
+      pass.setBindGroup(0, this.device.createBindGroup({
+        layout: scaleRowPipeline.getBindGroupLayout(0),
+        entries: [
+          { binding: 0, resource: { buffer: augBuffer } },
+          { binding: 1, resource: { buffer: dimsBuffer } },
+          { binding: 2, resource: { buffer: scaleBuffer } },
+        ],
+      }));
+      pass.dispatchWorkgroups(Math.ceil(width / 256));
+      pass.end();
+      this.device.queue.submit([commandEncoder.finish()]);
+
+      // Eliminate column in all other rows (GPU parallel)
+      this.device.queue.writeBuffer(dimsBuffer, 0, new Uint32Array([n, i, 0, 0]));
+
+      commandEncoder = this.device.createCommandEncoder();
+      pass = commandEncoder.beginComputePass();
+      pass.setPipeline(eliminatePipeline);
+      pass.setBindGroup(0, this.device.createBindGroup({
+        layout: eliminatePipeline.getBindGroupLayout(0),
+        entries: [
+          { binding: 0, resource: { buffer: augBuffer } },
+          { binding: 1, resource: { buffer: dimsBuffer } },
+        ],
+      }));
+      pass.dispatchWorkgroups(Math.ceil(width / 16), Math.ceil(n / 16));
+      pass.end();
+      this.device.queue.submit([commandEncoder.finish()]);
+    }
+
+    // Read back result (right half of augmented matrix)
+    const resultStagingBuffer = this.device.createBuffer({
+      size: n * width * 4,
+      usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST,
+    });
+    const commandEncoder = this.device.createCommandEncoder();
+    commandEncoder.copyBufferToBuffer(augBuffer, 0, resultStagingBuffer, 0, n * width * 4);
+    this.device.queue.submit([commandEncoder.finish()]);
+
+    resultStagingBuffer.mapAsync(GPUMapMode.READ).then(() => {});
+    while (resultStagingBuffer.mapState === 'pending') {}
+    const augResult = new Float32Array(resultStagingBuffer.getMappedRange());
+
+    // Extract inverse (right half)
+    const result = new Float64Array(n * n);
+    for (let i = 0; i < n; i++) {
+      for (let j = 0; j < n; j++) {
+        result[i * n + j] = augResult[i * width + n + j];
+      }
+    }
+
+    resultStagingBuffer.unmap();
+    resultStagingBuffer.destroy();
+    augBuffer.destroy();
+    dimsBuffer.destroy();
+    scaleBuffer.destroy();
+
     return this.createArray(result, [n, n]);
   }
 
@@ -9734,8 +10330,12 @@ export class WebGPUBackend implements Backend {
     return this.createArray(result, outShape);
   }
 
-  // ============ Einstein Summation ============
+  // ============ Einstein Summation (GPU-optimized) ============
 
+  /**
+   * GPU-accelerated einsum that routes common patterns to existing GPU ops
+   * and uses a GPU shader for general contractions.
+   */
   einsum(subscripts: string, ...operands: IFaceNDArray[]): IFaceNDArray {
     const [inputStr, outputStr] = subscripts.split('->').map(s => s.trim());
     const inputSubscripts = inputStr.split(',').map(s => s.trim());
@@ -9744,6 +10344,96 @@ export class WebGPUBackend implements Backend {
       throw new Error(`einsum: expected ${inputSubscripts.length} operands, got ${operands.length}`);
     }
 
+    // Try to route to optimized GPU ops for common patterns
+    const optimized = this._tryOptimizedEinsum(subscripts, operands);
+    if (optimized !== null) {
+      return optimized;
+    }
+
+    // General case: use GPU-accelerated contraction shader
+    return this._einsumGPU(inputSubscripts, outputStr, operands);
+  }
+
+  /**
+   * Try to route einsum to existing optimized GPU ops
+   */
+  private _tryOptimizedEinsum(subscripts: string, operands: IFaceNDArray[]): IFaceNDArray | null {
+    const normalized = subscripts.replace(/\s+/g, '');
+
+    // Matrix multiply: ij,jk->ik or ij,kj->ik (transposed B)
+    if (normalized === 'ij,jk->ik' && operands.length === 2) {
+      return this.matmul(operands[0], operands[1]);
+    }
+    if (normalized === 'ij,kj->ik' && operands.length === 2) {
+      return this.matmul(operands[0], this.transpose(operands[1]));
+    }
+    if (normalized === 'ji,jk->ik' && operands.length === 2) {
+      return this.matmul(this.transpose(operands[0]), operands[1]);
+    }
+
+    // Dot product / inner product: i,i->
+    if ((normalized === 'i,i->' || normalized === 'i,i') && operands.length === 2) {
+      return this.dot(operands[0], operands[1]);
+    }
+
+    // Outer product: i,j->ij
+    if (normalized === 'i,j->ij' && operands.length === 2) {
+      return this.outer(operands[0], operands[1]);
+    }
+
+    // Trace: ii->
+    if ((normalized === 'ii->' || normalized === 'ii') && operands.length === 1) {
+      return this.createArray(new Float64Array([this.trace(operands[0])]), [1]);
+    }
+
+    // Diagonal: ii->i
+    if (normalized === 'ii->i' && operands.length === 1) {
+      return this.diag(operands[0]);
+    }
+
+    // Transpose: ij->ji
+    if (normalized === 'ij->ji' && operands.length === 1) {
+      return this.transpose(operands[0]);
+    }
+
+    // Sum all: i-> or ij->
+    if (normalized.endsWith('->') && operands.length === 1) {
+      const sumVal = this.sum(operands[0]);
+      return this.createArray(new Float64Array([sumVal]), [1]);
+    }
+
+    // Batch matmul: bij,bjk->bik
+    if (normalized === 'bij,bjk->bik' && operands.length === 2) {
+      // Could implement batch matmul here, but for now fall through
+    }
+
+    // Elementwise multiply with broadcast: ij,j->ij
+    if (normalized === 'ij,j->ij' && operands.length === 2) {
+      const [m, n] = operands[0].shape;
+      const v = operands[1];
+      if (v.shape.length === 1 && v.shape[0] === n) {
+        // Broadcast multiply: each row of A multiplied by v
+        const result = new Float64Array(m * n);
+        for (let i = 0; i < m; i++) {
+          for (let j = 0; j < n; j++) {
+            result[i * n + j] = operands[0].data[i * n + j] * v.data[j];
+          }
+        }
+        // This is still CPU - but we can use GPU broadcast multiply
+        const aFlat = this.flatten(operands[0]);
+        const vTiled = this.tile(v, [m]);  // Tile v m times
+        return this.reshape(this.mul(aFlat, vTiled), [m, n]);
+      }
+    }
+
+    return null;  // Fall through to general implementation
+  }
+
+  /**
+   * GPU-accelerated general einsum using compute shader
+   */
+  private _einsumGPU(inputSubscripts: string[], outputStr: string | undefined, operands: IFaceNDArray[]): IFaceNDArray {
+    // Parse labels and sizes
     const labelSizes: Map<string, number> = new Map();
     const inputLabels: string[][] = [];
 
@@ -9767,7 +10457,7 @@ export class WebGPUBackend implements Backend {
     }
 
     let outputLabels: string[];
-    if (outputStr !== undefined) {
+    if (outputStr !== undefined && outputStr !== '') {
       outputLabels = outputStr.split('');
     } else {
       const labelCounts: Map<string, number> = new Map();
@@ -9791,14 +10481,41 @@ export class WebGPUBackend implements Backend {
     const outputSet = new Set(outputLabels);
     const allLabels = Array.from(labelSizes.keys());
     const contractedLabels = allLabels.filter(l => !outputSet.has(l));
-
     const contractedSizes = contractedLabels.map(l => labelSizes.get(l)!);
     const contractedTotal = contractedSizes.length === 0 ? 1 : contractedSizes.reduce((a, b) => a * b, 1);
 
+    // For very small outputs or simple contractions, GPU overhead isn't worth it
+    // Use GPU shader for larger computations
+    if (outputSize * contractedTotal > 1024) {
+      return this._einsumGPUShader(
+        operands, inputLabels, outputLabels, contractedLabels,
+        labelSizes, outputShape, outputSize, contractedTotal, contractedSizes
+      );
+    }
+
+    // Small case: CPU is faster
+    return this._einsumCPU(
+      operands, inputLabels, outputLabels, contractedLabels,
+      labelSizes, outputShape, outputSize, contractedTotal, contractedSizes
+    );
+  }
+
+  /**
+   * CPU implementation for small einsum operations
+   */
+  private _einsumCPU(
+    operands: IFaceNDArray[],
+    inputLabels: string[][],
+    outputLabels: string[],
+    contractedLabels: string[],
+    labelSizes: Map<string, number>,
+    outputShape: number[],
+    outputSize: number,
+    contractedTotal: number,
+    contractedSizes: number[]
+  ): IFaceNDArray {
     const result = new Float64Array(outputSize);
-
     const inputStrides = operands.map(op => this._computeStrides(op.shape));
-
     const outputStrides = outputShape.length === 0 ? [] : this._computeStrides(outputShape);
 
     for (let outIdx = 0; outIdx < outputSize; outIdx++) {
@@ -9815,7 +10532,6 @@ export class WebGPUBackend implements Backend {
         const contrCoords: Map<string, number> = new Map();
         let contrRemaining = contrIdx;
         for (let d = 0; d < contractedLabels.length; d++) {
-          const size = contractedSizes[d];
           const stride = d < contractedSizes.length - 1
             ? contractedSizes.slice(d + 1).reduce((a, b) => a * b, 1)
             : 1;
@@ -9843,6 +10559,207 @@ export class WebGPUBackend implements Backend {
     }
 
     return this.createArray(result, outputShape.length === 0 ? [1] : outputShape);
+  }
+
+  /**
+   * GPU shader implementation for general einsum
+   * Creates a specialized shader for the contraction pattern
+   */
+  private _einsumGPUShader(
+    operands: IFaceNDArray[],
+    inputLabels: string[][],
+    outputLabels: string[],
+    contractedLabels: string[],
+    labelSizes: Map<string, number>,
+    outputShape: number[],
+    outputSize: number,
+    contractedTotal: number,
+    contractedSizes: number[]
+  ): IFaceNDArray {
+    // Build unique label ordering for shader
+    const allLabelsList = [...outputLabels, ...contractedLabels];
+    const labelToIdx = new Map<string, number>();
+    allLabelsList.forEach((l, i) => labelToIdx.set(l, i));
+
+    // Compute strides for each operand based on labels
+    const inputStrides = operands.map((op, opIdx) => {
+      const strides: number[] = [];
+      let stride = 1;
+      for (let d = op.shape.length - 1; d >= 0; d--) {
+        strides.unshift(stride);
+        stride *= op.shape[d];
+      }
+      return strides;
+    });
+
+    const outputStrides = outputShape.length === 0 ? [] : this._computeStrides(outputShape);
+    const contractedStrides = contractedSizes.length === 0 ? [] : this._computeStrides(contractedSizes);
+
+    // Generate specialized shader code
+    const shaderCode = this._generateEinsumShader(
+      operands.length, inputLabels, outputLabels, contractedLabels,
+      labelSizes, inputStrides, outputStrides, contractedStrides,
+      outputSize, contractedTotal
+    );
+
+    // Create or get cached pipeline
+    const shaderKey = `einsum_${inputLabels.map(l => l.join('')).join('_')}_${outputLabels.join('')}`;
+    const pipeline = this.getOrCreatePipeline(shaderKey, shaderCode);
+
+    // Create buffers
+    const operandBuffers: GPUBuffer[] = [];
+    for (let i = 0; i < operands.length; i++) {
+      const size = operands[i].data.length * 4;
+      const buffer = this.bufferManager.acquire(size, GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST);
+      const f32 = new Float32Array(operands[i].data.length);
+      for (let j = 0; j < operands[i].data.length; j++) f32[j] = operands[i].data[j];
+      this.device.queue.writeBuffer(buffer, 0, f32);
+      operandBuffers.push(buffer);
+    }
+
+    const outBuffer = this.bufferManager.acquire(outputSize * 4, GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC);
+
+    // Build bind group entries
+    const entries: GPUBindGroupEntry[] = operandBuffers.map((buf, i) => ({
+      binding: i,
+      resource: { buffer: buf }
+    }));
+    entries.push({ binding: operands.length, resource: { buffer: outBuffer } });
+
+    const bindGroup = this.device.createBindGroup({
+      layout: pipeline.getBindGroupLayout(0),
+      entries,
+    });
+
+    // Dispatch
+    const commandEncoder = this.device.createCommandEncoder();
+    const passEncoder = commandEncoder.beginComputePass();
+    passEncoder.setPipeline(pipeline);
+    passEncoder.setBindGroup(0, bindGroup);
+    passEncoder.dispatchWorkgroups(Math.ceil(outputSize / 256));
+    passEncoder.end();
+    this.device.queue.submit([commandEncoder.finish()]);
+
+    // Read back
+    const stagingBuffer = this.device.createBuffer({
+      size: outputSize * 4,
+      usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST,
+    });
+    const copyEncoder = this.device.createCommandEncoder();
+    copyEncoder.copyBufferToBuffer(outBuffer, 0, stagingBuffer, 0, outputSize * 4);
+    this.device.queue.submit([copyEncoder.finish()]);
+
+    stagingBuffer.mapAsync(GPUMapMode.READ).then(() => {});
+    while (stagingBuffer.mapState === 'pending') {}
+    const resultF32 = new Float32Array(stagingBuffer.getMappedRange().slice(0));
+    stagingBuffer.unmap();
+    stagingBuffer.destroy();
+
+    // Release buffers
+    for (const buf of operandBuffers) this.bufferManager.release(buf);
+    this.bufferManager.release(outBuffer);
+
+    const result = new Float64Array(outputSize);
+    for (let i = 0; i < outputSize; i++) result[i] = resultF32[i];
+
+    return this.createArray(result, outputShape.length === 0 ? [1] : outputShape);
+  }
+
+  /**
+   * Generate specialized WGSL shader for einsum pattern
+   */
+  private _generateEinsumShader(
+    numOperands: number,
+    inputLabels: string[][],
+    outputLabels: string[],
+    contractedLabels: string[],
+    labelSizes: Map<string, number>,
+    inputStrides: number[][],
+    outputStrides: number[],
+    contractedStrides: number[],
+    outputSize: number,
+    contractedTotal: number
+  ): string {
+    // Generate operand buffer bindings
+    let bindings = '';
+    for (let i = 0; i < numOperands; i++) {
+      bindings += `  @group(0) @binding(${i}) var<storage, read> op${i}: array<f32>;\n`;
+    }
+    bindings += `  @group(0) @binding(${numOperands}) var<storage, read_write> result: array<f32>;\n`;
+
+    // Generate index computation for each operand
+    const genOperandIndex = (opIdx: number): string => {
+      const labels = inputLabels[opIdx];
+      const strides = inputStrides[opIdx];
+      const terms: string[] = [];
+      for (let d = 0; d < labels.length; d++) {
+        const label = labels[d];
+        const outIdx = outputLabels.indexOf(label);
+        const contrIdx = contractedLabels.indexOf(label);
+        if (outIdx >= 0) {
+          terms.push(`outCoord${outIdx} * ${strides[d]}u`);
+        } else if (contrIdx >= 0) {
+          terms.push(`contrCoord${contrIdx} * ${strides[d]}u`);
+        }
+      }
+      return terms.length > 0 ? terms.join(' + ') : '0u';
+    };
+
+    // Generate output coordinate extraction
+    let outCoordCode = '';
+    for (let d = 0; d < outputLabels.length; d++) {
+      const stride = outputStrides[d] || 1;
+      if (d === 0) {
+        outCoordCode += `    var outCoord${d} = outIdx / ${stride}u;\n`;
+        outCoordCode += `    var outRem${d} = outIdx % ${stride}u;\n`;
+      } else {
+        outCoordCode += `    var outCoord${d} = outRem${d - 1} / ${stride}u;\n`;
+        if (d < outputLabels.length - 1) {
+          outCoordCode += `    var outRem${d} = outRem${d - 1} % ${stride}u;\n`;
+        }
+      }
+    }
+
+    // Generate contracted coordinate extraction
+    let contrCoordCode = '';
+    for (let d = 0; d < contractedLabels.length; d++) {
+      const stride = contractedStrides[d] || 1;
+      if (d === 0) {
+        contrCoordCode += `      var contrCoord${d} = contrIdx / ${stride}u;\n`;
+        contrCoordCode += `      var contrRem${d} = contrIdx % ${stride}u;\n`;
+      } else {
+        contrCoordCode += `      var contrCoord${d} = contrRem${d - 1} / ${stride}u;\n`;
+        if (d < contractedLabels.length - 1) {
+          contrCoordCode += `      var contrRem${d} = contrRem${d - 1} % ${stride}u;\n`;
+        }
+      }
+    }
+
+    // Generate product computation
+    let productCode = '';
+    for (let i = 0; i < numOperands; i++) {
+      const idx = genOperandIndex(i);
+      productCode += `      prod = prod * op${i}[${idx}];\n`;
+    }
+
+    return `
+${bindings}
+  @compute @workgroup_size(256)
+  fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
+    let outIdx = gid.x;
+    if (outIdx >= ${outputSize}u) { return; }
+
+${outCoordCode}
+    var sum: f32 = 0.0;
+    for (var contrIdx: u32 = 0u; contrIdx < ${contractedTotal}u; contrIdx = contrIdx + 1u) {
+${contrCoordCode}
+      var prod: f32 = 1.0;
+${productCode}
+      sum = sum + prod;
+    }
+    result[outIdx] = sum;
+  }
+`;
   }
 
   // ============ Differences ============
@@ -10055,7 +10972,7 @@ export class WebGPUBackend implements Backend {
     return this.createArray(result, [n, n]);
   }
 
-  // ============ Convolution ============
+  // ============ Convolution (GPU) ============
 
   convolve(a: IFaceNDArray, v: IFaceNDArray, mode: 'full' | 'same' | 'valid' = 'full'): IFaceNDArray {
     const aFlat = this.flatten(a);
@@ -10063,11 +10980,13 @@ export class WebGPUBackend implements Backend {
     const aLen = aFlat.data.length;
     const vLen = vFlat.data.length;
 
+    // Compute full convolution length and mode-specific output range
+    const fullLen = aLen + vLen - 1;
     let outLen: number;
     let startIdx: number;
 
     if (mode === 'full') {
-      outLen = aLen + vLen - 1;
+      outLen = fullLen;
       startIdx = 0;
     } else if (mode === 'same') {
       outLen = aLen;
@@ -10077,34 +10996,86 @@ export class WebGPUBackend implements Backend {
       startIdx = vLen - 1;
     }
 
-    const fullLen = aLen + vLen - 1;
-    const full = new Float64Array(fullLen);
+    // Get or create GPU pipeline
+    const pipeline = this.getOrCreatePipeline('convolve', CONVOLVE_SHADER);
 
-    for (let i = 0; i < fullLen; i++) {
-      let sum = 0;
-      for (let j = 0; j < vLen; j++) {
-        const aIdx = i - j;
-        if (aIdx >= 0 && aIdx < aLen) {
-          sum += aFlat.data[aIdx] * vFlat.data[j];
-        }
-      }
-      full[i] = sum;
-    }
+    // Create GPU buffers for input arrays
+    const aBuffer = this.bufferManager.acquire(aLen * 4, GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST);
+    const vBuffer = this.bufferManager.acquire(vLen * 4, GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST);
+    const fullBuffer = this.bufferManager.acquire(fullLen * 4, GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC);
+    const paramsBuffer = this.bufferManager.acquire(16, GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST);
 
+    // Upload input data (f64 -> f32)
+    const aF32 = new Float32Array(aLen);
+    const vF32 = new Float32Array(vLen);
+    for (let i = 0; i < aLen; i++) aF32[i] = aFlat.data[i];
+    for (let i = 0; i < vLen; i++) vF32[i] = vFlat.data[i];
+    this.device.queue.writeBuffer(aBuffer, 0, aF32);
+    this.device.queue.writeBuffer(vBuffer, 0, vF32);
+    this.device.queue.writeBuffer(paramsBuffer, 0, new Uint32Array([aLen, vLen, fullLen, 0]));
+
+    // Create bind group and dispatch
+    const bindGroup = this.device.createBindGroup({
+      layout: pipeline.getBindGroupLayout(0),
+      entries: [
+        { binding: 0, resource: { buffer: aBuffer } },
+        { binding: 1, resource: { buffer: vBuffer } },
+        { binding: 2, resource: { buffer: fullBuffer } },
+        { binding: 3, resource: { buffer: paramsBuffer } },
+      ],
+    });
+
+    const commandEncoder = this.device.createCommandEncoder();
+    const passEncoder = commandEncoder.beginComputePass();
+    passEncoder.setPipeline(pipeline);
+    passEncoder.setBindGroup(0, bindGroup);
+    passEncoder.dispatchWorkgroups(Math.ceil(fullLen / 256));
+    passEncoder.end();
+    this.device.queue.submit([commandEncoder.finish()]);
+
+    // Read back result
+    const stagingBuffer = this.device.createBuffer({
+      size: fullLen * 4,
+      usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST,
+    });
+    const copyEncoder = this.device.createCommandEncoder();
+    copyEncoder.copyBufferToBuffer(fullBuffer, 0, stagingBuffer, 0, fullLen * 4);
+    this.device.queue.submit([copyEncoder.finish()]);
+
+    // Sync wait for readback
+    stagingBuffer.mapAsync(GPUMapMode.READ).then(() => {});
+    while (stagingBuffer.mapState === 'pending') {}
+    const fullF32 = new Float32Array(stagingBuffer.getMappedRange().slice(0));
+    stagingBuffer.unmap();
+    stagingBuffer.destroy();
+
+    // Release buffers
+    this.bufferManager.release(aBuffer);
+    this.bufferManager.release(vBuffer);
+    this.bufferManager.release(fullBuffer);
+    this.bufferManager.release(paramsBuffer);
+
+    // Extract the output range based on mode
     const result = new Float64Array(outLen);
     for (let i = 0; i < outLen; i++) {
-      result[i] = full[startIdx + i];
+      result[i] = fullF32[startIdx + i];
     }
 
     return this.createArray(result, [outLen]);
   }
 
   correlate(a: IFaceNDArray, v: IFaceNDArray, mode: 'full' | 'same' | 'valid' = 'valid'): IFaceNDArray {
+    // Correlate is convolve with reversed kernel - reverse on GPU
     const vFlat = this.flatten(v);
-    const vReversed = this.createArray(
-      new Float64Array([...vFlat.data].reverse()),
-      vFlat.shape
-    );
+    const vLen = vFlat.data.length;
+
+    // Reverse the kernel (this is a simple op, done on CPU for now)
+    const vReversedData = new Float64Array(vLen);
+    for (let i = 0; i < vLen; i++) {
+      vReversedData[i] = vFlat.data[vLen - 1 - i];
+    }
+    const vReversed = this.createArray(vReversedData, vFlat.shape);
+
     return this.convolve(a, vReversed, mode);
   }
 
