@@ -511,6 +511,13 @@ export function conv2d(input: NDArray, kernel: NDArray, stride: Uint32Array, pad
  */
 export function convTranspose2d(input: NDArray, kernel: NDArray, stride: Uint32Array, padding: Uint32Array, output_padding: Uint32Array): NDArray;
 
+/**
+ * Copy sign of b to magnitude of a
+ *
+ * Equivalent to numpy.copysign(a, b).
+ */
+export function copysignArr(a: NDArray, b: NDArray): NDArray;
+
 export function cosArr(arr: NDArray): NDArray;
 
 export function coshArr(arr: NDArray): NDArray;
@@ -518,6 +525,14 @@ export function coshArr(arr: NDArray): NDArray;
 export function deg2radArr(arr: NDArray): NDArray;
 
 export function det(arr: NDArray): number;
+
+/**
+ * Compute floor division and remainder simultaneously
+ *
+ * Returns two arrays: quotient (floor division) and remainder.
+ * Equivalent to numpy.divmod(a, b).
+ */
+export function divmodArr(a: NDArray, b: NDArray): Array<any>;
 
 export function dot(a: NDArray, b: NDArray): NDArray;
 
@@ -580,7 +595,23 @@ export function fminArr(a: NDArray, b: NDArray): NDArray;
  */
 export function fminScalar(arr: NDArray, scalar: number): NDArray;
 
+/**
+ * Decompose array into mantissa and exponent (base 2)
+ *
+ * Returns two arrays: mantissa and exponent where x = mantissa * 2^exponent.
+ * Equivalent to numpy.frexp(x).
+ */
+export function frexpArr(arr: NDArray): Array<any>;
+
 export function full(shape: Uint32Array, value: number): NDArray;
+
+/**
+ * Generate geometrically spaced values
+ *
+ * Returns num values from start to stop (inclusive) with geometric spacing.
+ * Equivalent to numpy.geomspace(start, stop, num).
+ */
+export function geomspaceArr(start: number, stop: number, num: number): NDArray;
 
 /**
  * Get the current number of rayon threads
@@ -603,6 +634,13 @@ export function heavisideArr(arr: NDArray, h0: number): NDArray;
 export function hstack2(a: NDArray, b: NDArray): NDArray;
 
 /**
+ * Compute hypotenuse: sqrt(a^2 + b^2) avoiding overflow
+ *
+ * Equivalent to numpy.hypot(a, b).
+ */
+export function hypotArr(a: NDArray, b: NDArray): NDArray;
+
+/**
  * Initialize panic hook for better error messages
  */
 export function init(): void;
@@ -612,6 +650,13 @@ export function initThreadPool(num_threads: number): Promise<any>;
 export function inner(a: NDArray, b: NDArray): number;
 
 export function inv(arr: NDArray): NDArray;
+
+/**
+ * Compute x * 2^exp element-wise
+ *
+ * Equivalent to numpy.ldexp(x, exp).
+ */
+export function ldexpArr(arr: NDArray, exp: NDArray): NDArray;
 
 export function linspace(start: number, stop: number, num: number): NDArray;
 
@@ -662,6 +707,14 @@ export function logicalNot(arr: NDArray): NDArray;
  * Equivalent to numpy.logical_or(a, b).
  */
 export function logicalOr(a: NDArray, b: NDArray): NDArray;
+
+/**
+ * Generate logarithmically spaced values
+ *
+ * Returns num values from base^start to base^stop (inclusive).
+ * Equivalent to numpy.logspace(start, stop, num, base).
+ */
+export function logspaceArr(start: number, stop: number, num: number, base: number): NDArray;
 
 export function matmul(a: NDArray, b: NDArray): NDArray;
 
@@ -1008,6 +1061,21 @@ export function minimum(a: NDArray, b: NDArray): NDArray;
  */
 export function minimumScalar(arr: NDArray, scalar: number): NDArray;
 
+/**
+ * Python-style modulo (remainder has same sign as divisor)
+ *
+ * Equivalent to numpy.mod(a, b) or a % b in Python.
+ */
+export function modArr(a: NDArray, b: NDArray): NDArray;
+
+/**
+ * Decompose array into fractional and integral parts
+ *
+ * Returns two arrays: fractional parts and integral parts.
+ * Equivalent to numpy.modf(x).
+ */
+export function modfArr(arr: NDArray): Array<any>;
+
 export function negArr(arr: NDArray): NDArray;
 
 export function norm(arr: NDArray, ord?: number | null): number;
@@ -1251,10 +1319,12 @@ export interface InitOutput {
     readonly cond: (a: number) => [number, number, number];
     readonly conv2d: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number, number];
     readonly convTranspose2d: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number) => [number, number, number];
+    readonly copysignArr: (a: number, b: number) => [number, number, number];
     readonly cosArr: (a: number) => number;
     readonly coshArr: (a: number) => number;
     readonly deg2radArr: (a: number) => number;
     readonly det: (a: number) => [number, number, number];
+    readonly divmodArr: (a: number, b: number) => [number, number, number];
     readonly dot: (a: number, b: number) => [number, number, number];
     readonly einsum: (a: number, b: number, c: number, d: number) => [number, number, number];
     readonly expArr: (a: number) => number;
@@ -1270,12 +1340,16 @@ export interface InitOutput {
     readonly fmaxScalar: (a: number, b: number) => number;
     readonly fminArr: (a: number, b: number) => [number, number, number];
     readonly fminScalar: (a: number, b: number) => number;
+    readonly frexpArr: (a: number) => any;
     readonly full: (a: number, b: number, c: number) => number;
+    readonly geomspaceArr: (a: number, b: number, c: number) => [number, number, number];
     readonly hasSharedArrayBuffer: () => number;
     readonly heavisideArr: (a: number, b: number) => number;
     readonly hstack2: (a: number, b: number) => [number, number, number];
+    readonly hypotArr: (a: number, b: number) => [number, number, number];
     readonly inner: (a: number, b: number) => [number, number, number];
     readonly inv: (a: number) => [number, number, number];
+    readonly ldexpArr: (a: number, b: number) => [number, number, number];
     readonly linspace: (a: number, b: number, c: number) => number;
     readonly log10Arr: (a: number) => number;
     readonly log1pArr: (a: number) => number;
@@ -1286,6 +1360,7 @@ export interface InitOutput {
     readonly logicalAnd: (a: number, b: number) => [number, number, number];
     readonly logicalNot: (a: number) => number;
     readonly logicalOr: (a: number, b: number) => [number, number, number];
+    readonly logspaceArr: (a: number, b: number, c: number, d: number) => number;
     readonly matmul: (a: number, b: number) => [number, number, number];
     readonly matmulF32: (a: any, b: any, c: number, d: number, e: number) => any;
     readonly matmulF325x8: (a: any, b: any, c: number, d: number, e: number) => any;
@@ -1311,6 +1386,8 @@ export interface InitOutput {
     readonly maximumScalar: (a: number, b: number) => number;
     readonly minimum: (a: number, b: number) => [number, number, number];
     readonly minimumScalar: (a: number, b: number) => number;
+    readonly modArr: (a: number, b: number) => [number, number, number];
+    readonly modfArr: (a: number) => any;
     readonly ndarray_add: (a: number, b: number) => [number, number, number];
     readonly ndarray_addScalar: (a: number, b: number) => number;
     readonly ndarray_all: (a: number) => number;

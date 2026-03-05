@@ -17,13 +17,21 @@ export default defineConfig({
   },
   test: {
     globals: true,
-    include: ['index.test.ts', 'benchmark.test.ts'],  // Only run these directly
+    include: ['index.test.ts', 'benchmark.test.ts'],
+    fileParallelism: false,  // Sequential test files to avoid WASM/WebGPU conflicts
+    testTimeout: 120000,  // 2 minute timeout for slow GPU tests
     // Use playwright browser for WASM tests (full SIMD + SharedArrayBuffer support)
     browser: {
       enabled: true,
       provider: playwright({
         launch: {
           headless: true,
+          args: [
+            // Enable WebGPU in headless mode
+            '--enable-features=Vulkan,UseSkiaRenderer',
+            '--enable-unsafe-webgpu',
+            '--enable-features=SharedArrayBuffer',
+          ],
         },
       }),
       instances: [

@@ -233,6 +233,17 @@ export interface Backend {
   any(arr: NDArray): boolean;
   sumAxis(arr: NDArray, axis: number): NDArray;
   meanAxis(arr: NDArray, axis: number): NDArray;
+  minAxis(arr: NDArray, axis: number): NDArray;
+  maxAxis(arr: NDArray, axis: number): NDArray;
+  argminAxis(arr: NDArray, axis: number): NDArray;
+  argmaxAxis(arr: NDArray, axis: number): NDArray;
+  varAxis(arr: NDArray, axis: number, ddof?: number): NDArray;
+  stdAxis(arr: NDArray, axis: number, ddof?: number): NDArray;
+  prodAxis(arr: NDArray, axis: number): NDArray;
+  allAxis(arr: NDArray, axis: number): NDArray;
+  anyAxis(arr: NDArray, axis: number): NDArray;
+  cumsumAxis(arr: NDArray, axis: number): NDArray;
+  cumprodAxis(arr: NDArray, axis: number): NDArray;
 
   // ============ Linalg ============
   matmul(a: NDArray, b: NDArray): NDArray;
@@ -334,6 +345,17 @@ export interface Backend {
   argsort(arr: NDArray, axis?: number): NDArray;
   searchsorted(arr: NDArray, v: number | NDArray, side?: 'left' | 'right'): NDArray | number;
   unique(arr: NDArray): NDArray;
+
+  // ============ Random ============
+  seed(s: number): void;
+  rand(shape: number[]): NDArray;
+  randn(shape: number[]): NDArray;
+  randint(low: number, high: number, shape: number[]): NDArray;
+  uniform(low: number, high: number, shape: number[]): NDArray;
+  normal(loc: number, scale: number, shape: number[]): NDArray;
+  shuffle(arr: NDArray): NDArray;
+  choice(arr: NDArray, size: number, replace?: boolean): NDArray;
+  permutation(n: number | NDArray): NDArray;
 
   // ============ GPU Materialization ============
   // For GPU backends: batch-read all pending GPU data before sync access

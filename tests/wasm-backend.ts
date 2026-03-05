@@ -436,6 +436,50 @@ export class WasmBackend implements Backend {
     return this.wrap(this.unwrap(arr).meanAxis(axis, false));
   }
 
+  minAxis(arr: IFaceNDArray, axis: number): IFaceNDArray {
+    return this.wrap(this.unwrap(arr).minAxis(axis, false));
+  }
+
+  maxAxis(arr: IFaceNDArray, axis: number): IFaceNDArray {
+    return this.wrap(this.unwrap(arr).maxAxis(axis, false));
+  }
+
+  argminAxis(arr: IFaceNDArray, axis: number): IFaceNDArray {
+    return this.wrap(this.unwrap(arr).argminAxis(axis));
+  }
+
+  argmaxAxis(arr: IFaceNDArray, axis: number): IFaceNDArray {
+    return this.wrap(this.unwrap(arr).argmaxAxis(axis));
+  }
+
+  varAxis(arr: IFaceNDArray, axis: number, ddof: number = 0): IFaceNDArray {
+    return this.wrap(this.unwrap(arr).varAxis(axis, ddof, false));
+  }
+
+  stdAxis(arr: IFaceNDArray, axis: number, ddof: number = 0): IFaceNDArray {
+    return this.wrap(this.unwrap(arr).stdAxis(axis, ddof, false));
+  }
+
+  prodAxis(arr: IFaceNDArray, axis: number): IFaceNDArray {
+    return this.wrap(this.unwrap(arr).prodAxis(axis, false));
+  }
+
+  allAxis(arr: IFaceNDArray, axis: number): IFaceNDArray {
+    return this.wrap(this.unwrap(arr).allAxis(axis, false));
+  }
+
+  anyAxis(arr: IFaceNDArray, axis: number): IFaceNDArray {
+    return this.wrap(this.unwrap(arr).anyAxis(axis, false));
+  }
+
+  cumsumAxis(arr: IFaceNDArray, axis: number): IFaceNDArray {
+    return this.wrap(this.unwrap(arr).cumsum(axis));
+  }
+
+  cumprodAxis(arr: IFaceNDArray, axis: number): IFaceNDArray {
+    return this.wrap(this.unwrap(arr).cumprod(axis));
+  }
+
   // ============ Comparison Operations ============
 
   private _checkSameShape(a: IFaceNDArray, b: IFaceNDArray): void {
@@ -2774,6 +2818,95 @@ export class WasmBackend implements Backend {
   // No-op for WASM backend (all data is already on CPU)
   async materializeAll(): Promise<void> {
     // Nothing to do
+  }
+
+  // ============ Random ============
+
+  seed(s: number): void {
+    this.wasm.randomSeed(BigInt(s >>> 0));
+  }
+
+  rand(shape: number[]): IFaceNDArray {
+    return this.wrap(this.wasm.randomRand(new Uint32Array(shape)));
+  }
+
+  randn(shape: number[]): IFaceNDArray {
+    return this.wrap(this.wasm.randomRandn(new Uint32Array(shape)));
+  }
+
+  randint(low: number, high: number, shape: number[]): IFaceNDArray {
+    // WASM doesn't have randint, implement using uniform
+    const size = shape.reduce((a, b) => a * b, 1);
+    const uniform = this.wasm.randomUniform(0, 1, new Uint32Array(shape));
+    const data = uniform.toTypedArray();
+    const range = high - low;
+    for (let i = 0; i < size; i++) {
+      data[i] = Math.floor(data[i] * range) + low;
+    }
+    return this.array(Array.from(data), shape);
+  }
+
+  uniform(low: number, high: number, shape: number[]): IFaceNDArray {
+    return this.wrap(this.wasm.randomUniform(low, high, new Uint32Array(shape)));
+  }
+
+  normal(loc: number, scale: number, shape: number[]): IFaceNDArray {
+    return this.wrap(this.wasm.randomNormal(loc, scale, new Uint32Array(shape)));
+  }
+
+  shuffle(arr: IFaceNDArray): IFaceNDArray {
+    // Fisher-Yates shuffle on first axis
+    const data = new Float64Array(arr.data);
+    const shape = [...arr.shape];
+    if (shape.length === 1) {
+      // 1D shuffle
+      for (let i = data.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [data[i], data[j]] = [data[j], data[i]];
+      }
+    } else {
+      // Shuffle along first axis
+      const stride = shape.slice(1).reduce((a, b) => a * b, 1);
+      const n = shape[0];
+      const temp = new Float64Array(stride);
+      for (let i = n - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        temp.set(data.subarray(i * stride, (i + 1) * stride));
+        data.copyWithin(i * stride, j * stride, (j + 1) * stride);
+        data.set(temp, j * stride);
+      }
+    }
+    return this.array(Array.from(data), shape);
+  }
+
+  choice(arr: IFaceNDArray, size: number, replace: boolean = true): IFaceNDArray {
+    const n = arr.data.length;
+    const data = new Float64Array(size);
+    if (replace) {
+      for (let i = 0; i < size; i++) {
+        const idx = Math.floor(Math.random() * n);
+        data[i] = arr.data[idx];
+      }
+    } else {
+      if (size > n) throw new Error('Cannot sample more than array size without replacement');
+      const indices = Array.from({ length: n }, (_, i) => i);
+      for (let i = 0; i < size; i++) {
+        const j = i + Math.floor(Math.random() * (n - i));
+        [indices[i], indices[j]] = [indices[j], indices[i]];
+        data[i] = arr.data[indices[i]];
+      }
+    }
+    return this.array(Array.from(data), [size]);
+  }
+
+  permutation(n: number | IFaceNDArray): IFaceNDArray {
+    let arr: IFaceNDArray;
+    if (typeof n === 'number') {
+      arr = this.arange(0, n, 1);
+    } else {
+      arr = this.array(Array.from(n.data), [...n.shape]);
+    }
+    return this.shuffle(arr);
   }
 }
 

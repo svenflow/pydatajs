@@ -1738,6 +1738,24 @@ export function convTranspose2d(input, kernel, stride, padding, output_padding) 
 }
 
 /**
+ * Copy sign of b to magnitude of a
+ *
+ * Equivalent to numpy.copysign(a, b).
+ * @param {NDArray} a
+ * @param {NDArray} b
+ * @returns {NDArray}
+ */
+export function copysignArr(a, b) {
+    _assertClass(a, NDArray);
+    _assertClass(b, NDArray);
+    const ret = wasm.copysignArr(a.__wbg_ptr, b.__wbg_ptr);
+    if (ret[2]) {
+        throw takeFromExternrefTable0(ret[1]);
+    }
+    return NDArray.__wrap(ret[0]);
+}
+
+/**
  * @param {NDArray} arr
  * @returns {NDArray}
  */
@@ -1778,6 +1796,25 @@ export function det(arr) {
         throw takeFromExternrefTable0(ret[1]);
     }
     return ret[0];
+}
+
+/**
+ * Compute floor division and remainder simultaneously
+ *
+ * Returns two arrays: quotient (floor division) and remainder.
+ * Equivalent to numpy.divmod(a, b).
+ * @param {NDArray} a
+ * @param {NDArray} b
+ * @returns {Array<any>}
+ */
+export function divmodArr(a, b) {
+    _assertClass(a, NDArray);
+    _assertClass(b, NDArray);
+    const ret = wasm.divmodArr(a.__wbg_ptr, b.__wbg_ptr);
+    if (ret[2]) {
+        throw takeFromExternrefTable0(ret[1]);
+    }
+    return takeFromExternrefTable0(ret[0]);
 }
 
 /**
@@ -1940,6 +1977,20 @@ export function fminScalar(arr, scalar) {
 }
 
 /**
+ * Decompose array into mantissa and exponent (base 2)
+ *
+ * Returns two arrays: mantissa and exponent where x = mantissa * 2^exponent.
+ * Equivalent to numpy.frexp(x).
+ * @param {NDArray} arr
+ * @returns {Array<any>}
+ */
+export function frexpArr(arr) {
+    _assertClass(arr, NDArray);
+    const ret = wasm.frexpArr(arr.__wbg_ptr);
+    return ret;
+}
+
+/**
  * @param {Uint32Array} shape
  * @param {number} value
  * @returns {NDArray}
@@ -1949,6 +2000,24 @@ export function full(shape, value) {
     const len0 = WASM_VECTOR_LEN;
     const ret = wasm.full(ptr0, len0, value);
     return NDArray.__wrap(ret);
+}
+
+/**
+ * Generate geometrically spaced values
+ *
+ * Returns num values from start to stop (inclusive) with geometric spacing.
+ * Equivalent to numpy.geomspace(start, stop, num).
+ * @param {number} start
+ * @param {number} stop
+ * @param {number} num
+ * @returns {NDArray}
+ */
+export function geomspaceArr(start, stop, num) {
+    const ret = wasm.geomspaceArr(start, stop, num);
+    if (ret[2]) {
+        throw takeFromExternrefTable0(ret[1]);
+    }
+    return NDArray.__wrap(ret[0]);
 }
 
 /**
@@ -2000,6 +2069,24 @@ export function hstack2(a, b) {
 }
 
 /**
+ * Compute hypotenuse: sqrt(a^2 + b^2) avoiding overflow
+ *
+ * Equivalent to numpy.hypot(a, b).
+ * @param {NDArray} a
+ * @param {NDArray} b
+ * @returns {NDArray}
+ */
+export function hypotArr(a, b) {
+    _assertClass(a, NDArray);
+    _assertClass(b, NDArray);
+    const ret = wasm.hypotArr(a.__wbg_ptr, b.__wbg_ptr);
+    if (ret[2]) {
+        throw takeFromExternrefTable0(ret[1]);
+    }
+    return NDArray.__wrap(ret[0]);
+}
+
+/**
  * Initialize panic hook for better error messages
  */
 export function init() {
@@ -2037,6 +2124,24 @@ export function inner(a, b) {
 export function inv(arr) {
     _assertClass(arr, NDArray);
     const ret = wasm.inv(arr.__wbg_ptr);
+    if (ret[2]) {
+        throw takeFromExternrefTable0(ret[1]);
+    }
+    return NDArray.__wrap(ret[0]);
+}
+
+/**
+ * Compute x * 2^exp element-wise
+ *
+ * Equivalent to numpy.ldexp(x, exp).
+ * @param {NDArray} arr
+ * @param {NDArray} exp
+ * @returns {NDArray}
+ */
+export function ldexpArr(arr, exp) {
+    _assertClass(arr, NDArray);
+    _assertClass(exp, NDArray);
+    const ret = wasm.ldexpArr(arr.__wbg_ptr, exp.__wbg_ptr);
     if (ret[2]) {
         throw takeFromExternrefTable0(ret[1]);
     }
@@ -2182,6 +2287,22 @@ export function logicalOr(a, b) {
         throw takeFromExternrefTable0(ret[1]);
     }
     return NDArray.__wrap(ret[0]);
+}
+
+/**
+ * Generate logarithmically spaced values
+ *
+ * Returns num values from base^start to base^stop (inclusive).
+ * Equivalent to numpy.logspace(start, stop, num, base).
+ * @param {number} start
+ * @param {number} stop
+ * @param {number} num
+ * @param {number} base
+ * @returns {NDArray}
+ */
+export function logspaceArr(start, stop, num, base) {
+    const ret = wasm.logspaceArr(start, stop, num, base);
+    return NDArray.__wrap(ret);
 }
 
 /**
@@ -2786,6 +2907,38 @@ export function minimumScalar(arr, scalar) {
     _assertClass(arr, NDArray);
     const ret = wasm.minimumScalar(arr.__wbg_ptr, scalar);
     return NDArray.__wrap(ret);
+}
+
+/**
+ * Python-style modulo (remainder has same sign as divisor)
+ *
+ * Equivalent to numpy.mod(a, b) or a % b in Python.
+ * @param {NDArray} a
+ * @param {NDArray} b
+ * @returns {NDArray}
+ */
+export function modArr(a, b) {
+    _assertClass(a, NDArray);
+    _assertClass(b, NDArray);
+    const ret = wasm.modArr(a.__wbg_ptr, b.__wbg_ptr);
+    if (ret[2]) {
+        throw takeFromExternrefTable0(ret[1]);
+    }
+    return NDArray.__wrap(ret[0]);
+}
+
+/**
+ * Decompose array into fractional and integral parts
+ *
+ * Returns two arrays: fractional parts and integral parts.
+ * Equivalent to numpy.modf(x).
+ * @param {NDArray} arr
+ * @returns {Array<any>}
+ */
+export function modfArr(arr) {
+    _assertClass(arr, NDArray);
+    const ret = wasm.modfArr(arr.__wbg_ptr);
+    return ret;
 }
 
 /**

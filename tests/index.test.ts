@@ -15,6 +15,7 @@ import { creationTests } from './creation.test';
 import { mathTests } from './math.test';
 import { linalgTests } from './linalg.test';
 import { statsTests } from './stats.test';
+import { randomTests } from './random.test';
 // FIXME: manipulation and phase2 tests cause vitest/playwright to hang
 // when combined with WebGPU backend. See investigation notes.
 // import { manipulationTests } from './manipulation.test';
@@ -42,6 +43,7 @@ describe('rumpy-ts', () => {
     mathTests(getBackend);
     linalgTests(getBackend);
     statsTests(getBackend);
+    randomTests(getBackend);
     // manipulationTests(getBackend);
     // phase2Tests(getBackend);
   });
@@ -74,6 +76,7 @@ describe('rumpy-ts', () => {
       mathTests(getBackend);
       linalgTests(getBackend);
       statsTests(getBackend);
+      randomTests(getBackend);
       // manipulationTests(getBackend);
       // phase2Tests(getBackend);
     }
@@ -113,6 +116,7 @@ describe('rumpy-ts', () => {
       mathTests(getBackend);
       linalgTests(getBackend);
       statsTests(getBackend);
+      randomTests(getBackend);
       // manipulationTests(getBackend);
       // phase2Tests(getBackend);
     }

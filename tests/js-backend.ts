@@ -1618,6 +1618,255 @@ export class JsBackend implements Backend {
     );
   }
 
+  minAxis(arr: NDArray, axis: number): NDArray {
+    if (arr.shape.length !== 2) throw new Error('minAxis only supports 2D');
+    if (axis < 0 || axis >= arr.shape.length) throw new Error('invalid axis');
+    const [rows, cols] = arr.shape;
+    if (axis === 0) {
+      const data = new Float64Array(cols);
+      for (let j = 0; j < cols; j++) {
+        data[j] = arr.data[j];
+        for (let i = 1; i < rows; i++) {
+          data[j] = Math.min(data[j], arr.data[i * cols + j]);
+        }
+      }
+      return new JsNDArray(data, [cols]);
+    } else {
+      const data = new Float64Array(rows);
+      for (let i = 0; i < rows; i++) {
+        data[i] = arr.data[i * cols];
+        for (let j = 1; j < cols; j++) {
+          data[i] = Math.min(data[i], arr.data[i * cols + j]);
+        }
+      }
+      return new JsNDArray(data, [rows]);
+    }
+  }
+
+  maxAxis(arr: NDArray, axis: number): NDArray {
+    if (arr.shape.length !== 2) throw new Error('maxAxis only supports 2D');
+    if (axis < 0 || axis >= arr.shape.length) throw new Error('invalid axis');
+    const [rows, cols] = arr.shape;
+    if (axis === 0) {
+      const data = new Float64Array(cols);
+      for (let j = 0; j < cols; j++) {
+        data[j] = arr.data[j];
+        for (let i = 1; i < rows; i++) {
+          data[j] = Math.max(data[j], arr.data[i * cols + j]);
+        }
+      }
+      return new JsNDArray(data, [cols]);
+    } else {
+      const data = new Float64Array(rows);
+      for (let i = 0; i < rows; i++) {
+        data[i] = arr.data[i * cols];
+        for (let j = 1; j < cols; j++) {
+          data[i] = Math.max(data[i], arr.data[i * cols + j]);
+        }
+      }
+      return new JsNDArray(data, [rows]);
+    }
+  }
+
+  argminAxis(arr: NDArray, axis: number): NDArray {
+    if (arr.shape.length !== 2) throw new Error('argminAxis only supports 2D');
+    if (axis < 0 || axis >= arr.shape.length) throw new Error('invalid axis');
+    const [rows, cols] = arr.shape;
+    if (axis === 0) {
+      const data = new Float64Array(cols);
+      for (let j = 0; j < cols; j++) {
+        let minIdx = 0;
+        for (let i = 1; i < rows; i++) {
+          if (arr.data[i * cols + j] < arr.data[minIdx * cols + j]) minIdx = i;
+        }
+        data[j] = minIdx;
+      }
+      return new JsNDArray(data, [cols]);
+    } else {
+      const data = new Float64Array(rows);
+      for (let i = 0; i < rows; i++) {
+        let minIdx = 0;
+        for (let j = 1; j < cols; j++) {
+          if (arr.data[i * cols + j] < arr.data[i * cols + minIdx]) minIdx = j;
+        }
+        data[i] = minIdx;
+      }
+      return new JsNDArray(data, [rows]);
+    }
+  }
+
+  argmaxAxis(arr: NDArray, axis: number): NDArray {
+    if (arr.shape.length !== 2) throw new Error('argmaxAxis only supports 2D');
+    if (axis < 0 || axis >= arr.shape.length) throw new Error('invalid axis');
+    const [rows, cols] = arr.shape;
+    if (axis === 0) {
+      const data = new Float64Array(cols);
+      for (let j = 0; j < cols; j++) {
+        let maxIdx = 0;
+        for (let i = 1; i < rows; i++) {
+          if (arr.data[i * cols + j] > arr.data[maxIdx * cols + j]) maxIdx = i;
+        }
+        data[j] = maxIdx;
+      }
+      return new JsNDArray(data, [cols]);
+    } else {
+      const data = new Float64Array(rows);
+      for (let i = 0; i < rows; i++) {
+        let maxIdx = 0;
+        for (let j = 1; j < cols; j++) {
+          if (arr.data[i * cols + j] > arr.data[i * cols + maxIdx]) maxIdx = j;
+        }
+        data[i] = maxIdx;
+      }
+      return new JsNDArray(data, [rows]);
+    }
+  }
+
+  varAxis(arr: NDArray, axis: number, ddof: number = 0): NDArray {
+    if (arr.shape.length !== 2) throw new Error('varAxis only supports 2D');
+    const mean = this.meanAxis(arr, axis);
+    const [rows, cols] = arr.shape;
+    if (axis === 0) {
+      const data = new Float64Array(cols);
+      for (let j = 0; j < cols; j++) {
+        let sumSq = 0;
+        for (let i = 0; i < rows; i++) {
+          const diff = arr.data[i * cols + j] - mean.data[j];
+          sumSq += diff * diff;
+        }
+        data[j] = sumSq / (rows - ddof);
+      }
+      return new JsNDArray(data, [cols]);
+    } else {
+      const data = new Float64Array(rows);
+      for (let i = 0; i < rows; i++) {
+        let sumSq = 0;
+        for (let j = 0; j < cols; j++) {
+          const diff = arr.data[i * cols + j] - mean.data[i];
+          sumSq += diff * diff;
+        }
+        data[i] = sumSq / (cols - ddof);
+      }
+      return new JsNDArray(data, [rows]);
+    }
+  }
+
+  stdAxis(arr: NDArray, axis: number, ddof: number = 0): NDArray {
+    const variance = this.varAxis(arr, axis, ddof);
+    return new JsNDArray(variance.data.map(Math.sqrt), variance.shape);
+  }
+
+  prodAxis(arr: NDArray, axis: number): NDArray {
+    if (arr.shape.length !== 2) throw new Error('prodAxis only supports 2D');
+    if (axis < 0 || axis >= arr.shape.length) throw new Error('invalid axis');
+    const [rows, cols] = arr.shape;
+    if (axis === 0) {
+      const data = new Float64Array(cols).fill(1);
+      for (let j = 0; j < cols; j++) {
+        for (let i = 0; i < rows; i++) {
+          data[j] *= arr.data[i * cols + j];
+        }
+      }
+      return new JsNDArray(data, [cols]);
+    } else {
+      const data = new Float64Array(rows).fill(1);
+      for (let i = 0; i < rows; i++) {
+        for (let j = 0; j < cols; j++) {
+          data[i] *= arr.data[i * cols + j];
+        }
+      }
+      return new JsNDArray(data, [rows]);
+    }
+  }
+
+  allAxis(arr: NDArray, axis: number): NDArray {
+    if (arr.shape.length !== 2) throw new Error('allAxis only supports 2D');
+    if (axis < 0 || axis >= arr.shape.length) throw new Error('invalid axis');
+    const [rows, cols] = arr.shape;
+    if (axis === 0) {
+      const data = new Float64Array(cols).fill(1);
+      for (let j = 0; j < cols; j++) {
+        for (let i = 0; i < rows; i++) {
+          if (arr.data[i * cols + j] === 0) { data[j] = 0; break; }
+        }
+      }
+      return new JsNDArray(data, [cols]);
+    } else {
+      const data = new Float64Array(rows).fill(1);
+      for (let i = 0; i < rows; i++) {
+        for (let j = 0; j < cols; j++) {
+          if (arr.data[i * cols + j] === 0) { data[i] = 0; break; }
+        }
+      }
+      return new JsNDArray(data, [rows]);
+    }
+  }
+
+  anyAxis(arr: NDArray, axis: number): NDArray {
+    if (arr.shape.length !== 2) throw new Error('anyAxis only supports 2D');
+    if (axis < 0 || axis >= arr.shape.length) throw new Error('invalid axis');
+    const [rows, cols] = arr.shape;
+    if (axis === 0) {
+      const data = new Float64Array(cols).fill(0);
+      for (let j = 0; j < cols; j++) {
+        for (let i = 0; i < rows; i++) {
+          if (arr.data[i * cols + j] !== 0) { data[j] = 1; break; }
+        }
+      }
+      return new JsNDArray(data, [cols]);
+    } else {
+      const data = new Float64Array(rows).fill(0);
+      for (let i = 0; i < rows; i++) {
+        for (let j = 0; j < cols; j++) {
+          if (arr.data[i * cols + j] !== 0) { data[i] = 1; break; }
+        }
+      }
+      return new JsNDArray(data, [rows]);
+    }
+  }
+
+  cumsumAxis(arr: NDArray, axis: number): NDArray {
+    if (arr.shape.length !== 2) throw new Error('cumsumAxis only supports 2D');
+    if (axis < 0 || axis >= arr.shape.length) throw new Error('invalid axis');
+    const [rows, cols] = arr.shape;
+    const data = new Float64Array(arr.data);
+    if (axis === 0) {
+      for (let j = 0; j < cols; j++) {
+        for (let i = 1; i < rows; i++) {
+          data[i * cols + j] += data[(i - 1) * cols + j];
+        }
+      }
+    } else {
+      for (let i = 0; i < rows; i++) {
+        for (let j = 1; j < cols; j++) {
+          data[i * cols + j] += data[i * cols + j - 1];
+        }
+      }
+    }
+    return new JsNDArray(data, [rows, cols]);
+  }
+
+  cumprodAxis(arr: NDArray, axis: number): NDArray {
+    if (arr.shape.length !== 2) throw new Error('cumprodAxis only supports 2D');
+    if (axis < 0 || axis >= arr.shape.length) throw new Error('invalid axis');
+    const [rows, cols] = arr.shape;
+    const data = new Float64Array(arr.data);
+    if (axis === 0) {
+      for (let j = 0; j < cols; j++) {
+        for (let i = 1; i < rows; i++) {
+          data[i * cols + j] *= data[(i - 1) * cols + j];
+        }
+      }
+    } else {
+      for (let i = 0; i < rows; i++) {
+        for (let j = 1; j < cols; j++) {
+          data[i * cols + j] *= data[i * cols + j - 1];
+        }
+      }
+    }
+    return new JsNDArray(data, [rows, cols]);
+  }
+
   // ============ Linalg ============
 
   matmul(a: NDArray, b: NDArray): NDArray {
@@ -3518,6 +3767,134 @@ export class JsBackend implements Backend {
   // No-op for JS backend (all data is already on CPU)
   async materializeAll(): Promise<void> {
     // Nothing to do
+  }
+
+  // ============ Random ============
+  private _rngState: number = Date.now();
+
+  private _xorshift(): number {
+    // Simple xorshift32 PRNG for reproducibility
+    let x = this._rngState;
+    x ^= x << 13;
+    x ^= x >>> 17;
+    x ^= x << 5;
+    this._rngState = x >>> 0;
+    return (this._rngState >>> 0) / 0xFFFFFFFF;
+  }
+
+  seed(s: number): void {
+    this._rngState = s >>> 0;
+    if (this._rngState === 0) this._rngState = 1; // Avoid zero state
+  }
+
+  rand(shape: number[]): NDArray {
+    const size = shape.reduce((a, b) => a * b, 1);
+    const data = new Float64Array(size);
+    for (let i = 0; i < size; i++) {
+      data[i] = this._xorshift();
+    }
+    return new JsNDArray(data, shape);
+  }
+
+  randn(shape: number[]): NDArray {
+    // Box-Muller transform for normal distribution
+    const size = shape.reduce((a, b) => a * b, 1);
+    const data = new Float64Array(size);
+    for (let i = 0; i < size; i += 2) {
+      const u1 = this._xorshift();
+      const u2 = this._xorshift();
+      const r = Math.sqrt(-2.0 * Math.log(u1 || 1e-10));
+      const theta = 2.0 * Math.PI * u2;
+      data[i] = r * Math.cos(theta);
+      if (i + 1 < size) data[i + 1] = r * Math.sin(theta);
+    }
+    return new JsNDArray(data, shape);
+  }
+
+  randint(low: number, high: number, shape: number[]): NDArray {
+    const size = shape.reduce((a, b) => a * b, 1);
+    const data = new Float64Array(size);
+    const range = high - low;
+    for (let i = 0; i < size; i++) {
+      data[i] = Math.floor(this._xorshift() * range) + low;
+    }
+    return new JsNDArray(data, shape);
+  }
+
+  uniform(low: number, high: number, shape: number[]): NDArray {
+    const size = shape.reduce((a, b) => a * b, 1);
+    const data = new Float64Array(size);
+    const range = high - low;
+    for (let i = 0; i < size; i++) {
+      data[i] = this._xorshift() * range + low;
+    }
+    return new JsNDArray(data, shape);
+  }
+
+  normal(loc: number, scale: number, shape: number[]): NDArray {
+    const arr = this.randn(shape);
+    const data = arr.data;
+    for (let i = 0; i < data.length; i++) {
+      data[i] = data[i] * scale + loc;
+    }
+    return new JsNDArray(data, shape);
+  }
+
+  shuffle(arr: NDArray): NDArray {
+    // Fisher-Yates shuffle on first axis
+    const data = new Float64Array(arr.data);
+    const shape = [...arr.shape];
+    if (shape.length === 1) {
+      // 1D shuffle
+      for (let i = data.length - 1; i > 0; i--) {
+        const j = Math.floor(this._xorshift() * (i + 1));
+        [data[i], data[j]] = [data[j], data[i]];
+      }
+    } else {
+      // Shuffle along first axis
+      const stride = shape.slice(1).reduce((a, b) => a * b, 1);
+      const n = shape[0];
+      const temp = new Float64Array(stride);
+      for (let i = n - 1; i > 0; i--) {
+        const j = Math.floor(this._xorshift() * (i + 1));
+        // Swap row i with row j
+        temp.set(data.subarray(i * stride, (i + 1) * stride));
+        data.copyWithin(i * stride, j * stride, (j + 1) * stride);
+        data.set(temp, j * stride);
+      }
+    }
+    return new JsNDArray(data, shape);
+  }
+
+  choice(arr: NDArray, size: number, replace: boolean = true): NDArray {
+    const n = arr.data.length;
+    const data = new Float64Array(size);
+    if (replace) {
+      for (let i = 0; i < size; i++) {
+        const idx = Math.floor(this._xorshift() * n);
+        data[i] = arr.data[idx];
+      }
+    } else {
+      if (size > n) throw new Error('Cannot sample more than array size without replacement');
+      // Fisher-Yates partial shuffle
+      const indices = Array.from({ length: n }, (_, i) => i);
+      for (let i = 0; i < size; i++) {
+        const j = i + Math.floor(this._xorshift() * (n - i));
+        [indices[i], indices[j]] = [indices[j], indices[i]];
+        data[i] = arr.data[indices[i]];
+      }
+    }
+    return new JsNDArray(data, [size]);
+  }
+
+  permutation(n: number | NDArray): NDArray {
+    let arr: NDArray;
+    if (typeof n === 'number') {
+      arr = this.arange(0, n, 1);
+    } else {
+      arr = new JsNDArray(new Float64Array(n.data), [...n.shape]);
+    }
+    return this.shuffle(arr);
   }
 }
 
