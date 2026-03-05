@@ -1,142 +1,149 @@
-# rumpy-ts
+# tsnp (TypeScript NumPy)
 
-High-performance NumPy-like library for TypeScript, powered by Rust and WebAssembly.
+High-performance NumPy-like library for TypeScript, powered by Rust/WASM and WebGPU.
 
-## Rename Decision
+## ⚠️ CRITICAL: Backend Purity Rules
 
-**New name: `tsnp`** (TypeScript NumPy)
-- npm package name `tsnp` is available (verified 2026-03-04)
-- Short, memorable, hints at TS + NumPy
-- GitHub: no competing repos with this name for numeric/array libs
+### WASM Backend: 100% Rust Implementation
 
-Rename checklist when ready:
-- [ ] Update package.json name to "tsnp"
-- [ ] Update README title and references
-- [ ] Create new GitHub repo or rename existing
-- [ ] Publish to npm as "tsnp"
+**ZERO JavaScript math implementations allowed.**
+
+- ALL math operations MUST be implemented in Rust, compiled to WASM
+- `wasm-backend.ts` is ONLY a thin wrapper - no math logic whatsoever
+- If a method calls `Math.*` or does computation in TypeScript, it's WRONG
+- If WASM module doesn't export an op, ADD IT TO RUST - never implement in TS
+
+```typescript
+// ❌ WRONG - math in TypeScript
+trunc(arr: IFaceNDArray): IFaceNDArray {
+  const result = new Float64Array(arr.data.length);
+  for (let i = 0; i < arr.data.length; i++) {
+    result[i] = Math.trunc(arr.data[i]);
+  }
+  return this.array(Array.from(result), arr.shape);
+}
+
+// ✅ CORRECT - delegate to WASM
+trunc(arr: IFaceNDArray): IFaceNDArray {
+  return this.wrap(this.wasm.truncArr(this.unwrap(arr)));
+}
+```
+
+### WebGPU Backend: 100% GPU Shaders
+
+**ZERO CPU fallbacks for math operations.**
+
+- ALL math operations MUST have WGSL compute shaders
+- `webgpu-backend.ts` contains ONLY shader orchestration code
+- Sync methods can block on GPU readback, but computation is ALWAYS on GPU
+- If a shader doesn't exist, WRITE ONE - never fall back to CPU
+
+```typescript
+// ❌ WRONG - CPU fallback
+sin(arr: IFaceNDArray): IFaceNDArray {
+  const result = new Float64Array(arr.data.length);
+  for (let i = 0; i < arr.data.length; i++) {
+    result[i] = Math.sin(arr.data[i]);
+  }
+  return this.array(Array.from(result), arr.shape);
+}
+
+// ✅ CORRECT - GPU shader
+sin(arr: IFaceNDArray): IFaceNDArray {
+  return this.runElementwiseShader('sin', arr);
+}
+```
+
+### Adding New Operations
+
+1. Add method signature to `Backend` interface in `test-utils.ts`
+2. TypeScript compiler errors show what's missing in each backend
+3. **WASM**: Add to `crates/rumpy-wasm/src/lib.rs`, rebuild with `wasm-pack build`
+4. **WebGPU**: Add WGSL shader to `webgpu-backend.ts`
+5. Add test to appropriate test file (runs against ALL backends)
+6. **NEVER** implement math in the TypeScript wrapper layer
+
+## Test Parameterization
+
+Tests MUST run against ALL backends with identical expectations:
+
+```typescript
+// ✅ CORRECT - parameterized test
+describe.each(backends)('$name backend', (B) => {
+  it('computes sin', async () => {
+    const arr = B.array([0, Math.PI/2, Math.PI], [3]);
+    const result = B.sin(arr);
+    expect(await getData(result, B)).toEqual([0, 1, 0]);
+  });
+});
+
+// ❌ WRONG - backend-specific test
+describe('wasm backend', () => {
+  it('computes sin', () => { /* wasm-specific */ });
+});
+describe('webgpu backend', () => {
+  it('computes sin', () => { /* different implementation */ });
+});
+```
+
+**If a backend can't pass a test, FIX THE BACKEND - don't skip the test.**
 
 ## Development
 
-**CRITICAL: Always use `bun`, never use raw `npm`.**
+**Always use `bun`, never raw `npm`:**
 
 ```bash
-# CORRECT
 bun install
 bun run build
 bun test
-
-# WRONG - never do this
-npm install
-npm run build
-npm test
 ```
 
 ## Build Commands
 
 ```bash
-# Build Rust crates
-cargo build --all
-
-# Run Rust tests
-cargo test --all
-
-# Build WASM
+# Build WASM (from project root)
 wasm-pack build crates/rumpy-wasm --target web
 
-# Build and test TypeScript
-cd tests && bun install && bun test
+# Copy WASM to tests directory
+cp -r crates/rumpy-wasm/pkg tests/wasm-pkg
+
+# Run tests
+cd tests && bun test
 ```
 
 ## Architecture
 
 ```
-rumpy-ts/
+tsnp/
 ├── crates/
 │   ├── rumpy-core/      # Backend traits and common types
 │   ├── rumpy-cpu/       # CPU backend (ndarray/faer)
-│   ├── rumpy-wasm/      # WASM bindings
-│   ├── rumpy-webgpu/    # WebGPU backend (future - will be TypeScript)
-│   ├── rumpy-tests/     # Shared Rust test suite
+│   ├── rumpy-wasm/      # WASM bindings - ALL math here
 │   └── pthreadpool-rs/  # Thread pool for parallel computation
-├── tests/               # JavaScript test suite (mirrors Rust tests)
-│   ├── test-utils.ts    # Backend interface + helpers
-│   ├── creation.test.ts # zeros, ones, arange, linspace, eye, diag
-│   ├── math.test.ts     # trig, exp, log, binary ops
-│   ├── linalg.test.ts   # matmul, dot, inv, det, svd, qr
-│   ├── stats.test.ts    # sum, mean, std, min, max, cumsum
-│   └── index.test.ts    # Main entry - runs all tests against backends
-└── benchmarks/          # Performance benchmarks
+├── tests/
+│   ├── test-utils.ts    # Backend interface (185 methods)
+│   ├── wasm-backend.ts  # THIN wrapper only - no math
+│   ├── webgpu-backend.ts # Shader orchestration only
+│   ├── *.test.ts        # Parameterized tests
+│   └── wasm-pkg/        # Compiled WASM module
+└── benchmarks/
 ```
 
-## Backend System
+## WebGPU Performance
 
-All backends implement the same trait interface (Rust) or TypeScript interface (JS):
+Beats tfjs-webgpu at all matrix sizes (up to 2.56x faster at 4096x4096).
 
-- `CreationOps` - zeros, ones, arange, linspace, eye, diag
-- `MathOps` - sin, cos, exp, log, sqrt, add, mul, etc.
-- `StatsOps` - sum, mean, std, var, min, max, cumsum, cumprod
-- `LinalgOps` - matmul, inv, det, svd, qr, solve
-- `ManipulationOps` - reshape, transpose, concatenate
-- `RandomOps` - rand, randn, uniform, normal
-- `CompareOps` - eq, lt, gt, isnan, isinf
+Key insights:
+- Store A as vec4 along K dimension (not M)
+- B-value register caching for ILP
+- Autotune selects optimal shader per size
 
-## Testing Strategy
+**CRITICAL: Test WebGPU in native Chrome, NOT Playwright (adds ~15-20% overhead)**
 
-Tests are parameterized to run against multiple backends:
+## Checklist Before Committing
 
-1. **Rust tests** (`crates/rumpy-tests/`) - Run via `cargo test`
-2. **JavaScript tests** (`tests/`) - Run via `bun test`, test WASM and WebGPU backends
-
-Both test suites should have identical test coverage.
-
-## WebGPU Performance (2026-03-04)
-
-**🏆 rumpy-webgpu CRUSHES tfjs-webgpu at ALL matrix sizes! 🏆**
-
-### Latest Benchmark Results (Native Chrome, M4 Pro)
-
-| Size | rumpy GFLOPS | tfjs GFLOPS | Winner |
-|------|-------------|-------------|--------|
-| 512x512 | 224 | 206 | **rumpy 1.08x** 🎉 |
-| 1024x1024 | 1023 | 467 | **rumpy 2.19x** 🎉🎉 |
-| 2048x2048 | 2070 | 1273 | **rumpy 1.63x** 🎉🎉 |
-| 4096x4096 | 5799 | 2264 | **rumpy 2.56x** 🎉🎉🎉 |
-
-### Key Breakthroughs
-
-1. **Store A as vec4 along K dimension (NOT M)** - THE critical insight from reverse-engineering tfjs
-2. **B-value register caching** - Load 4 B vec4s into registers BEFORE iterating over A rows (maximizes ILP)
-3. **Autotune selects optimal shader per size**:
-   - small-16 (16x16 tiles): Best for 512 and 4096
-   - tfjs-32 (32x32 tiles): Best for 1024 and 2048
-
-### The Winning Algorithm
-
-```wgsl
-// tfjs exact pattern - the key is 8 groups of 4 K values
-for (var k = 0; k < 8; k++) {
-  // Cache 4 consecutive B values in registers
-  let BCached0 = mm_Bsub[k * 4 + 0][tileCol];
-  let BCached1 = mm_Bsub[k * 4 + 1][tileCol];
-  let BCached2 = mm_Bsub[k * 4 + 2][tileCol];
-  let BCached3 = mm_Bsub[k * 4 + 3][tileCol];
-
-  // Iterate over 4 A rows, using ACached[0-3] for 4 K values each
-  for (var i = 0; i < 4; i++) {
-    let ACached = mm_Asub[tileRow + i][k];  // 4 K values as vec4
-    acc[i] = fma(BCached0, vec4<f32>(ACached[0]), acc[i]);
-    acc[i] = fma(BCached1, vec4<f32>(ACached[1]), acc[i]);
-    acc[i] = fma(BCached2, vec4<f32>(ACached[2]), acc[i]);
-    acc[i] = fma(BCached3, vec4<f32>(ACached[3]), acc[i]);
-  }
-}
-```
-
-### Benchmark Files
-
-Run `node tests/serve.mjs` then open in Chrome:
-- http://localhost:8089/final-benchmark.html - Full autotune + all sizes
-- http://localhost:8089/tfjs-exact-v2-benchmark.html - tfjs-32 shader only
-- http://localhost:8089/tfjs-shader-dump.html - Dump actual tfjs shader code
-
-**CRITICAL: ALWAYS test WebGPU in native Chrome, NOT Playwright/headless (adds ~15-20% overhead)**
+- [ ] `bun test` passes with 0 failures
+- [ ] No `Math.*` calls in wasm-backend.ts (except test utilities)
+- [ ] No CPU loops over array data in webgpu-backend.ts math methods
+- [ ] All new ops added to Backend interface
+- [ ] Tests are parameterized across all backends
