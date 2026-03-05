@@ -7113,6 +7113,244 @@ export class WebGPUBackend implements Backend {
     return this.createArray(result, sumResult.shape);
   }
 
+  // ============ Comparison Operations ============
+
+  private _checkSameShapeCompare(a: IFaceNDArray, b: IFaceNDArray): void {
+    if (a.shape.length !== b.shape.length) {
+      throw new Error(`Shape mismatch: [${a.shape}] vs [${b.shape}]`);
+    }
+    for (let i = 0; i < a.shape.length; i++) {
+      if (a.shape[i] !== b.shape[i]) {
+        throw new Error(`Shape mismatch: [${a.shape}] vs [${b.shape}]`);
+      }
+    }
+  }
+
+  equal(a: IFaceNDArray, b: IFaceNDArray): IFaceNDArray {
+    this._checkSameShapeCompare(a, b);
+    const data = new Float64Array(a.data.length);
+    for (let i = 0; i < a.data.length; i++) {
+      data[i] = a.data[i] === b.data[i] ? 1 : 0;
+    }
+    return this.createArray(data, a.shape);
+  }
+
+  notEqual(a: IFaceNDArray, b: IFaceNDArray): IFaceNDArray {
+    this._checkSameShapeCompare(a, b);
+    const data = new Float64Array(a.data.length);
+    for (let i = 0; i < a.data.length; i++) {
+      data[i] = a.data[i] !== b.data[i] ? 1 : 0;
+    }
+    return this.createArray(data, a.shape);
+  }
+
+  less(a: IFaceNDArray, b: IFaceNDArray): IFaceNDArray {
+    this._checkSameShapeCompare(a, b);
+    const data = new Float64Array(a.data.length);
+    for (let i = 0; i < a.data.length; i++) {
+      data[i] = a.data[i] < b.data[i] ? 1 : 0;
+    }
+    return this.createArray(data, a.shape);
+  }
+
+  lessEqual(a: IFaceNDArray, b: IFaceNDArray): IFaceNDArray {
+    this._checkSameShapeCompare(a, b);
+    const data = new Float64Array(a.data.length);
+    for (let i = 0; i < a.data.length; i++) {
+      data[i] = a.data[i] <= b.data[i] ? 1 : 0;
+    }
+    return this.createArray(data, a.shape);
+  }
+
+  greater(a: IFaceNDArray, b: IFaceNDArray): IFaceNDArray {
+    this._checkSameShapeCompare(a, b);
+    const data = new Float64Array(a.data.length);
+    for (let i = 0; i < a.data.length; i++) {
+      data[i] = a.data[i] > b.data[i] ? 1 : 0;
+    }
+    return this.createArray(data, a.shape);
+  }
+
+  greaterEqual(a: IFaceNDArray, b: IFaceNDArray): IFaceNDArray {
+    this._checkSameShapeCompare(a, b);
+    const data = new Float64Array(a.data.length);
+    for (let i = 0; i < a.data.length; i++) {
+      data[i] = a.data[i] >= b.data[i] ? 1 : 0;
+    }
+    return this.createArray(data, a.shape);
+  }
+
+  isnan(arr: IFaceNDArray): IFaceNDArray {
+    const data = new Float64Array(arr.data.length);
+    for (let i = 0; i < arr.data.length; i++) {
+      data[i] = Number.isNaN(arr.data[i]) ? 1 : 0;
+    }
+    return this.createArray(data, arr.shape);
+  }
+
+  isinf(arr: IFaceNDArray): IFaceNDArray {
+    const data = new Float64Array(arr.data.length);
+    for (let i = 0; i < arr.data.length; i++) {
+      const x = arr.data[i];
+      data[i] = !Number.isFinite(x) && !Number.isNaN(x) ? 1 : 0;
+    }
+    return this.createArray(data, arr.shape);
+  }
+
+  isfinite(arr: IFaceNDArray): IFaceNDArray {
+    const data = new Float64Array(arr.data.length);
+    for (let i = 0; i < arr.data.length; i++) {
+      data[i] = Number.isFinite(arr.data[i]) ? 1 : 0;
+    }
+    return this.createArray(data, arr.shape);
+  }
+
+  // ============ Set Operations ============
+
+  setdiff1d(a: IFaceNDArray, b: IFaceNDArray): IFaceNDArray {
+    const setB = new Set(b.data);
+    const result = Array.from(a.data).filter(x => !setB.has(x));
+    const unique = [...new Set(result)].sort((x, y) => x - y);
+    return this.createArray(new Float64Array(unique), [unique.length]);
+  }
+
+  union1d(a: IFaceNDArray, b: IFaceNDArray): IFaceNDArray {
+    const combined = new Set([...a.data, ...b.data]);
+    const result = [...combined].sort((x, y) => x - y);
+    return this.createArray(new Float64Array(result), [result.length]);
+  }
+
+  intersect1d(a: IFaceNDArray, b: IFaceNDArray): IFaceNDArray {
+    const setB = new Set(b.data);
+    const result = [...new Set(Array.from(a.data).filter(x => setB.has(x)))].sort((x, y) => x - y);
+    return this.createArray(new Float64Array(result), [result.length]);
+  }
+
+  isin(element: IFaceNDArray, testElements: IFaceNDArray): IFaceNDArray {
+    const testSet = new Set(testElements.data);
+    const data = new Float64Array(element.data.length);
+    for (let i = 0; i < element.data.length; i++) {
+      data[i] = testSet.has(element.data[i]) ? 1 : 0;
+    }
+    return this.createArray(data, element.shape);
+  }
+
+  // ============ Extended Array Manipulation ============
+
+  insert(arr: IFaceNDArray, index: number, values: IFaceNDArray | number, axis?: number): IFaceNDArray {
+    if (axis === undefined) {
+      const flat = Array.from(this.flatten(arr).data);
+      const toInsert = typeof values === 'number' ? [values] : Array.from(values.data);
+      if (index < 0) index = flat.length + index + 1;
+      flat.splice(index, 0, ...toInsert);
+      return this.createArray(new Float64Array(flat), [flat.length]);
+    }
+    throw new Error('insert with axis not yet implemented');
+  }
+
+  deleteArr(arr: IFaceNDArray, index: number | number[], axis?: number): IFaceNDArray {
+    if (axis === undefined) {
+      const flat = Array.from(this.flatten(arr).data);
+      const indices = Array.isArray(index) ? index : [index];
+      const normalized = indices.map(i => i < 0 ? flat.length + i : i).sort((a, b) => b - a);
+      for (const i of normalized) {
+        flat.splice(i, 1);
+      }
+      return this.createArray(new Float64Array(flat), [flat.length]);
+    }
+    throw new Error('delete with axis not yet implemented');
+  }
+
+  append(arr: IFaceNDArray, values: IFaceNDArray, axis?: number): IFaceNDArray {
+    if (axis === undefined) {
+      const flat1 = this.flatten(arr);
+      const flat2 = this.flatten(values);
+      const result = new Float64Array(flat1.data.length + flat2.data.length);
+      result.set(flat1.data);
+      result.set(flat2.data, flat1.data.length);
+      return this.createArray(result, [result.length]);
+    }
+    return this.concatenate([arr, values], axis);
+  }
+
+  atleast1d(arr: IFaceNDArray): IFaceNDArray {
+    if (arr.shape.length === 0) {
+      return this.createArray(new Float64Array(arr.data), [1]);
+    }
+    return arr;
+  }
+
+  atleast2d(arr: IFaceNDArray): IFaceNDArray {
+    if (arr.shape.length === 0) {
+      return this.createArray(new Float64Array(arr.data), [1, 1]);
+    }
+    if (arr.shape.length === 1) {
+      return this.createArray(new Float64Array(arr.data), [1, arr.shape[0]]);
+    }
+    return arr;
+  }
+
+  atleast3d(arr: IFaceNDArray): IFaceNDArray {
+    if (arr.shape.length === 0) {
+      return this.createArray(new Float64Array(arr.data), [1, 1, 1]);
+    }
+    if (arr.shape.length === 1) {
+      return this.createArray(new Float64Array(arr.data), [1, arr.shape[0], 1]);
+    }
+    if (arr.shape.length === 2) {
+      return this.createArray(new Float64Array(arr.data), [arr.shape[0], arr.shape[1], 1]);
+    }
+    return arr;
+  }
+
+  countNonzero(arr: IFaceNDArray, axis?: number): IFaceNDArray | number {
+    if (axis === undefined) {
+      let count = 0;
+      for (let i = 0; i < arr.data.length; i++) {
+        if (arr.data[i] !== 0) count++;
+      }
+      return count;
+    }
+    // With axis - count along that axis
+    const normalizedAxis = axis < 0 ? arr.shape.length + axis : axis;
+    const outShape = arr.shape.filter((_, i) => i !== normalizedAxis);
+    const outSize = outShape.reduce((a, b) => a * b, 1) || 1;
+    const result = new Float64Array(outSize);
+    const strides = this._computeStrides(arr.shape);
+    const outStrides = outShape.length > 0 ? this._computeStrides(outShape) : [1];
+    const axisLen = arr.shape[normalizedAxis];
+
+    for (let outIdx = 0; outIdx < outSize; outIdx++) {
+      const outerCoords = new Array(outShape.length);
+      let remaining = outIdx;
+      for (let d = 0; d < outShape.length; d++) {
+        outerCoords[d] = Math.floor(remaining / outStrides[d]);
+        remaining = remaining % outStrides[d];
+      }
+
+      let count = 0;
+      for (let i = 0; i < axisLen; i++) {
+        const coords = new Array(arr.shape.length);
+        let outerD = 0;
+        for (let d = 0; d < arr.shape.length; d++) {
+          if (d === normalizedAxis) {
+            coords[d] = i;
+          } else {
+            coords[d] = outerCoords[outerD++];
+          }
+        }
+        let idx = 0;
+        for (let d = 0; d < arr.shape.length; d++) {
+          idx += coords[d] * strides[d];
+        }
+        if (arr.data[idx] !== 0) count++;
+      }
+      result[outIdx] = count;
+    }
+
+    return this.createArray(result, outShape);
+  }
+
   // ============ Linear Algebra - Sync (CPU) ============
 
   matmul(a: IFaceNDArray, b: IFaceNDArray): IFaceNDArray {

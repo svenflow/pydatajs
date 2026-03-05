@@ -102,19 +102,15 @@ export class WasmBackend implements Backend {
   }
 
   arcsin(arr: IFaceNDArray): IFaceNDArray {
-    // Fallback - not directly available in WASM
-    const result = Array.from(arr.data).map(Math.asin);
-    return this.array(result, arr.shape);
+    return this.wrap(this.wasm.arcsinArr(this.unwrap(arr)));
   }
 
   arccos(arr: IFaceNDArray): IFaceNDArray {
-    const result = Array.from(arr.data).map(Math.acos);
-    return this.array(result, arr.shape);
+    return this.wrap(this.wasm.arccosArr(this.unwrap(arr)));
   }
 
   arctan(arr: IFaceNDArray): IFaceNDArray {
-    const result = Array.from(arr.data).map(Math.atan);
-    return this.array(result, arr.shape);
+    return this.wrap(this.wasm.arctanArr(this.unwrap(arr)));
   }
 
   sinh(arr: IFaceNDArray): IFaceNDArray {
@@ -138,13 +134,11 @@ export class WasmBackend implements Backend {
   }
 
   log2(arr: IFaceNDArray): IFaceNDArray {
-    const result = Array.from(arr.data).map(Math.log2);
-    return this.array(result, arr.shape);
+    return this.wrap(this.wasm.log2Arr(this.unwrap(arr)));
   }
 
   log10(arr: IFaceNDArray): IFaceNDArray {
-    const result = Array.from(arr.data).map(Math.log10);
-    return this.array(result, arr.shape);
+    return this.wrap(this.wasm.log10Arr(this.unwrap(arr)));
   }
 
   sqrt(arr: IFaceNDArray): IFaceNDArray {
@@ -152,8 +146,7 @@ export class WasmBackend implements Backend {
   }
 
   cbrt(arr: IFaceNDArray): IFaceNDArray {
-    const result = Array.from(arr.data).map(Math.cbrt);
-    return this.array(result, arr.shape);
+    return this.wrap(this.wasm.cbrtArr(this.unwrap(arr)));
   }
 
   abs(arr: IFaceNDArray): IFaceNDArray {
@@ -181,8 +174,7 @@ export class WasmBackend implements Backend {
   }
 
   reciprocal(arr: IFaceNDArray): IFaceNDArray {
-    const result = Array.from(arr.data).map(x => 1 / x);
-    return this.array(result, arr.shape);
+    return this.wrap(this.wasm.reciprocalArr(this.unwrap(arr)));
   }
 
   square(arr: IFaceNDArray): IFaceNDArray {
@@ -192,33 +184,27 @@ export class WasmBackend implements Backend {
   // ============ Math - Unary (Extended) ============
 
   arcsinh(arr: IFaceNDArray): IFaceNDArray {
-    const result = Array.from(arr.data).map(Math.asinh);
-    return this.array(result, arr.shape);
+    return this.wrap(this.wasm.arcsinhArr(this.unwrap(arr)));
   }
 
   arccosh(arr: IFaceNDArray): IFaceNDArray {
-    const result = Array.from(arr.data).map(Math.acosh);
-    return this.array(result, arr.shape);
+    return this.wrap(this.wasm.arccoshArr(this.unwrap(arr)));
   }
 
   arctanh(arr: IFaceNDArray): IFaceNDArray {
-    const result = Array.from(arr.data).map(Math.atanh);
-    return this.array(result, arr.shape);
+    return this.wrap(this.wasm.arctanhArr(this.unwrap(arr)));
   }
 
   expm1(arr: IFaceNDArray): IFaceNDArray {
-    const result = Array.from(arr.data).map(Math.expm1);
-    return this.array(result, arr.shape);
+    return this.wrap(this.wasm.expm1Arr(this.unwrap(arr)));
   }
 
   log1p(arr: IFaceNDArray): IFaceNDArray {
-    const result = Array.from(arr.data).map(Math.log1p);
-    return this.array(result, arr.shape);
+    return this.wrap(this.wasm.log1pArr(this.unwrap(arr)));
   }
 
   trunc(arr: IFaceNDArray): IFaceNDArray {
-    const result = Array.from(arr.data).map(Math.trunc);
-    return this.array(result, arr.shape);
+    return this.wrap(this.wasm.truncArr(this.unwrap(arr)));
   }
 
   fix(arr: IFaceNDArray): IFaceNDArray {
@@ -227,42 +213,23 @@ export class WasmBackend implements Backend {
   }
 
   sinc(arr: IFaceNDArray): IFaceNDArray {
-    const result = Array.from(arr.data).map((x) => {
-      if (x === 0) return 1;
-      const px = Math.PI * x;
-      return Math.sin(px) / px;
-    });
-    return this.array(result, arr.shape);
+    return this.wrap(this.wasm.sincArr(this.unwrap(arr)));
   }
 
   deg2rad(arr: IFaceNDArray): IFaceNDArray {
-    const result = Array.from(arr.data).map((x) => x * Math.PI / 180);
-    return this.array(result, arr.shape);
+    return this.wrap(this.wasm.deg2radArr(this.unwrap(arr)));
   }
 
   rad2deg(arr: IFaceNDArray): IFaceNDArray {
-    const result = Array.from(arr.data).map((x) => x * 180 / Math.PI);
-    return this.array(result, arr.shape);
+    return this.wrap(this.wasm.rad2degArr(this.unwrap(arr)));
   }
 
   heaviside(arr: IFaceNDArray, h0: number): IFaceNDArray {
-    const result = Array.from(arr.data).map((x) => {
-      if (x < 0) return 0;
-      if (x === 0) return h0;
-      return 1;
-    });
-    return this.array(result, arr.shape);
+    return this.wrap(this.wasm.heavisideArr(this.unwrap(arr), h0));
   }
 
   signbit(arr: IFaceNDArray): IFaceNDArray {
-    // Returns 1.0 if sign bit is set (negative or -0), 0.0 otherwise
-    // NumPy: signbit(NaN) = False, signbit(-0) = True, signbit(-inf) = True
-    const result = Array.from(arr.data).map((x) => {
-      if (Number.isNaN(x)) return 0;  // NumPy returns False for NaN
-      if (Object.is(x, -0)) return 1;  // -0 has sign bit set
-      return x < 0 ? 1 : 0;
-    });
-    return this.array(result, arr.shape);
+    return this.wrap(this.wasm.signbitArr(this.unwrap(arr)));
   }
 
   // ============ Math - Decomposition ============
@@ -448,15 +415,7 @@ export class WasmBackend implements Backend {
   }
 
   pow(a: IFaceNDArray, b: IFaceNDArray): IFaceNDArray {
-    // Element-wise power - use scalar power for each element
-    // This is a fallback since element-wise pow isn't directly available
-    const aData = a.data;
-    const bData = b.data;
-    const result = new Float64Array(aData.length);
-    for (let i = 0; i < aData.length; i++) {
-      result[i] = Math.pow(aData[i], bData[i]);
-    }
-    return this.array(Array.from(result), a.shape);
+    return this.wrap(this.wasm.powArr(this.unwrap(a), this.unwrap(b)));
   }
 
   maximum(a: IFaceNDArray, b: IFaceNDArray): IFaceNDArray {
@@ -562,6 +521,241 @@ export class WasmBackend implements Backend {
     return this.wrap(this.unwrap(arr).meanAxis(axis, false));
   }
 
+  // ============ Comparison Operations ============
+
+  private _checkSameShape(a: IFaceNDArray, b: IFaceNDArray): void {
+    if (a.shape.length !== b.shape.length) {
+      throw new Error(`Shape mismatch: [${a.shape}] vs [${b.shape}]`);
+    }
+    for (let i = 0; i < a.shape.length; i++) {
+      if (a.shape[i] !== b.shape[i]) {
+        throw new Error(`Shape mismatch: [${a.shape}] vs [${b.shape}]`);
+      }
+    }
+  }
+
+  equal(a: IFaceNDArray, b: IFaceNDArray): IFaceNDArray {
+    this._checkSameShape(a, b);
+    const data = new Float64Array(a.data.length);
+    for (let i = 0; i < a.data.length; i++) {
+      data[i] = a.data[i] === b.data[i] ? 1 : 0;
+    }
+    return this.array(Array.from(data), a.shape);
+  }
+
+  notEqual(a: IFaceNDArray, b: IFaceNDArray): IFaceNDArray {
+    this._checkSameShape(a, b);
+    const data = new Float64Array(a.data.length);
+    for (let i = 0; i < a.data.length; i++) {
+      data[i] = a.data[i] !== b.data[i] ? 1 : 0;
+    }
+    return this.array(Array.from(data), a.shape);
+  }
+
+  less(a: IFaceNDArray, b: IFaceNDArray): IFaceNDArray {
+    this._checkSameShape(a, b);
+    const data = new Float64Array(a.data.length);
+    for (let i = 0; i < a.data.length; i++) {
+      data[i] = a.data[i] < b.data[i] ? 1 : 0;
+    }
+    return this.array(Array.from(data), a.shape);
+  }
+
+  lessEqual(a: IFaceNDArray, b: IFaceNDArray): IFaceNDArray {
+    this._checkSameShape(a, b);
+    const data = new Float64Array(a.data.length);
+    for (let i = 0; i < a.data.length; i++) {
+      data[i] = a.data[i] <= b.data[i] ? 1 : 0;
+    }
+    return this.array(Array.from(data), a.shape);
+  }
+
+  greater(a: IFaceNDArray, b: IFaceNDArray): IFaceNDArray {
+    this._checkSameShape(a, b);
+    const data = new Float64Array(a.data.length);
+    for (let i = 0; i < a.data.length; i++) {
+      data[i] = a.data[i] > b.data[i] ? 1 : 0;
+    }
+    return this.array(Array.from(data), a.shape);
+  }
+
+  greaterEqual(a: IFaceNDArray, b: IFaceNDArray): IFaceNDArray {
+    this._checkSameShape(a, b);
+    const data = new Float64Array(a.data.length);
+    for (let i = 0; i < a.data.length; i++) {
+      data[i] = a.data[i] >= b.data[i] ? 1 : 0;
+    }
+    return this.array(Array.from(data), a.shape);
+  }
+
+  isnan(arr: IFaceNDArray): IFaceNDArray {
+    const data = arr.data.map(x => Number.isNaN(x) ? 1 : 0);
+    return this.array(Array.from(data), arr.shape);
+  }
+
+  isinf(arr: IFaceNDArray): IFaceNDArray {
+    const data = arr.data.map(x => !Number.isFinite(x) && !Number.isNaN(x) ? 1 : 0);
+    return this.array(Array.from(data), arr.shape);
+  }
+
+  isfinite(arr: IFaceNDArray): IFaceNDArray {
+    const data = arr.data.map(x => Number.isFinite(x) ? 1 : 0);
+    return this.array(Array.from(data), arr.shape);
+  }
+
+  // ============ Set Operations ============
+
+  setdiff1d(a: IFaceNDArray, b: IFaceNDArray): IFaceNDArray {
+    const setB = new Set(b.data);
+    const result = Array.from(a.data).filter(x => !setB.has(x));
+    const unique = [...new Set(result)].sort((x, y) => x - y);
+    return this.array(unique, [unique.length]);
+  }
+
+  union1d(a: IFaceNDArray, b: IFaceNDArray): IFaceNDArray {
+    const combined = new Set([...a.data, ...b.data]);
+    const result = [...combined].sort((x, y) => x - y);
+    return this.array(result, [result.length]);
+  }
+
+  intersect1d(a: IFaceNDArray, b: IFaceNDArray): IFaceNDArray {
+    const setB = new Set(b.data);
+    const result = [...new Set(Array.from(a.data).filter(x => setB.has(x)))].sort((x, y) => x - y);
+    return this.array(result, [result.length]);
+  }
+
+  isin(element: IFaceNDArray, testElements: IFaceNDArray): IFaceNDArray {
+    const testSet = new Set(testElements.data);
+    const data = element.data.map(x => testSet.has(x) ? 1 : 0);
+    return this.array(Array.from(data), element.shape);
+  }
+
+  // ============ Extended Array Manipulation ============
+
+  insert(arr: IFaceNDArray, index: number, values: IFaceNDArray | number, axis?: number): IFaceNDArray {
+    if (axis === undefined) {
+      const flat = Array.from(this.flatten(arr).data);
+      const toInsert = typeof values === 'number' ? [values] : Array.from(values.data);
+      if (index < 0) index = flat.length + index + 1;
+      flat.splice(index, 0, ...toInsert);
+      return this.array(flat, [flat.length]);
+    }
+    throw new Error('insert with axis not yet implemented');
+  }
+
+  deleteArr(arr: IFaceNDArray, index: number | number[], axis?: number): IFaceNDArray {
+    if (axis === undefined) {
+      const flat = Array.from(this.flatten(arr).data);
+      const indices = Array.isArray(index) ? index : [index];
+      const normalized = indices.map(i => i < 0 ? flat.length + i : i).sort((a, b) => b - a);
+      for (const i of normalized) {
+        flat.splice(i, 1);
+      }
+      return this.array(flat, [flat.length]);
+    }
+    throw new Error('delete with axis not yet implemented');
+  }
+
+  append(arr: IFaceNDArray, values: IFaceNDArray, axis?: number): IFaceNDArray {
+    if (axis === undefined) {
+      const flat1 = this.flatten(arr);
+      const flat2 = this.flatten(values);
+      const result = new Float64Array(flat1.data.length + flat2.data.length);
+      result.set(flat1.data);
+      result.set(flat2.data, flat1.data.length);
+      return this.array(Array.from(result), [result.length]);
+    }
+    return this.concatenate([arr, values], axis);
+  }
+
+  atleast1d(arr: IFaceNDArray): IFaceNDArray {
+    if (arr.shape.length === 0) {
+      return this.array(Array.from(arr.data), [1]);
+    }
+    return arr;
+  }
+
+  atleast2d(arr: IFaceNDArray): IFaceNDArray {
+    if (arr.shape.length === 0) {
+      return this.array(Array.from(arr.data), [1, 1]);
+    }
+    if (arr.shape.length === 1) {
+      return this.array(Array.from(arr.data), [1, arr.shape[0]]);
+    }
+    return arr;
+  }
+
+  atleast3d(arr: IFaceNDArray): IFaceNDArray {
+    if (arr.shape.length === 0) {
+      return this.array(Array.from(arr.data), [1, 1, 1]);
+    }
+    if (arr.shape.length === 1) {
+      return this.array(Array.from(arr.data), [1, arr.shape[0], 1]);
+    }
+    if (arr.shape.length === 2) {
+      return this.array(Array.from(arr.data), [arr.shape[0], arr.shape[1], 1]);
+    }
+    return arr;
+  }
+
+  countNonzero(arr: IFaceNDArray, axis?: number): IFaceNDArray | number {
+    if (axis === undefined) {
+      let count = 0;
+      for (let i = 0; i < arr.data.length; i++) {
+        if (arr.data[i] !== 0) count++;
+      }
+      return count;
+    }
+    // With axis - count along that axis
+    const normalizedAxis = axis < 0 ? arr.shape.length + axis : axis;
+    const outShape = arr.shape.filter((_, i) => i !== normalizedAxis);
+    const outSize = outShape.reduce((a, b) => a * b, 1) || 1;
+    const result = new Float64Array(outSize);
+    const strides = this._computeStrides(arr.shape);
+    const outStrides = outShape.length > 0 ? this._computeStrides(outShape) : [1];
+    const axisLen = arr.shape[normalizedAxis];
+
+    for (let outIdx = 0; outIdx < outSize; outIdx++) {
+      const outerCoords = new Array(outShape.length);
+      let remaining = outIdx;
+      for (let d = 0; d < outShape.length; d++) {
+        outerCoords[d] = Math.floor(remaining / outStrides[d]);
+        remaining = remaining % outStrides[d];
+      }
+
+      let count = 0;
+      for (let i = 0; i < axisLen; i++) {
+        const coords = new Array(arr.shape.length);
+        let outerD = 0;
+        for (let d = 0; d < arr.shape.length; d++) {
+          if (d === normalizedAxis) {
+            coords[d] = i;
+          } else {
+            coords[d] = outerCoords[outerD++];
+          }
+        }
+        let idx = 0;
+        for (let d = 0; d < arr.shape.length; d++) {
+          idx += coords[d] * strides[d];
+        }
+        if (arr.data[idx] !== 0) count++;
+      }
+      result[outIdx] = count;
+    }
+
+    return this.array(Array.from(result), outShape);
+  }
+
+  private _computeStrides(shape: number[]): number[] {
+    const strides = new Array(shape.length);
+    let stride = 1;
+    for (let i = shape.length - 1; i >= 0; i--) {
+      strides[i] = stride;
+      stride *= shape[i];
+    }
+    return strides;
+  }
+
   // ============ Linalg ============
 
   matmul(a: IFaceNDArray, b: IFaceNDArray): IFaceNDArray {
@@ -602,29 +796,11 @@ export class WasmBackend implements Backend {
   }
 
   inner(a: IFaceNDArray, b: IFaceNDArray): number {
-    // Inner product: sum of element-wise multiplication
-    const aData = a.data;
-    const bData = b.data;
-    let sum = 0;
-    for (let i = 0; i < aData.length; i++) {
-      sum += aData[i] * bData[i];
-    }
-    return sum;
+    return this.wasm.inner(this.unwrap(a), this.unwrap(b));
   }
 
   outer(a: IFaceNDArray, b: IFaceNDArray): IFaceNDArray {
-    // Outer product: a[i] * b[j] for all i, j
-    const aData = a.data;
-    const bData = b.data;
-    const m = aData.length;
-    const n = bData.length;
-    const result = new Float64Array(m * n);
-    for (let i = 0; i < m; i++) {
-      for (let j = 0; j < n; j++) {
-        result[i * n + j] = aData[i] * bData[j];
-      }
-    }
-    return this.array(Array.from(result), [m, n]);
+    return this.wrap(this.wasm.outer(this.unwrap(a), this.unwrap(b)));
   }
 
   transpose(arr: IFaceNDArray): IFaceNDArray {
@@ -632,16 +808,7 @@ export class WasmBackend implements Backend {
   }
 
   trace(arr: IFaceNDArray): number {
-    // Trace: sum of diagonal elements
-    const shape = arr.shape;
-    if (shape.length !== 2) throw new Error('Matrix must be 2D');
-    const data = arr.data;
-    const n = Math.min(shape[0], shape[1]);
-    let sum = 0;
-    for (let i = 0; i < n; i++) {
-      sum += data[i * shape[1] + i];
-    }
-    return sum;
+    return this.wasm.trace(this.unwrap(arr));
   }
 
   det(arr: IFaceNDArray): number {
@@ -657,15 +824,7 @@ export class WasmBackend implements Backend {
   }
 
   norm(arr: IFaceNDArray, ord: number = 2): number {
-    // WASM norm might have different signature - adjust as needed
-    if (ord === Infinity) {
-      return Math.max(...Array.from(arr.data).map(Math.abs));
-    }
-    if (ord === 1) {
-      return Array.from(arr.data).reduce((acc, x) => acc + Math.abs(x), 0);
-    }
-    // Default L2
-    return Math.sqrt(Array.from(arr.data).reduce((acc, x) => acc + x * x, 0));
+    return this.wasm.norm(this.unwrap(arr), ord);
   }
 
   qr(arr: IFaceNDArray): { q: IFaceNDArray; r: IFaceNDArray } {
