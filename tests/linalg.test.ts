@@ -225,7 +225,7 @@ export function linalgTests(getBackend: () => Backend) {
     // ============ qr ============
 
     describe('qr', () => {
-      it.skip('computes QR decomposition', async () => {
+      it('computes QR decomposition (Q @ R = A)', async () => {
         const a = mat([1.0, 2.0, 3.0, 4.0, 5.0, 6.0], 3, 2);
         const { q, r } = B.qr(a);
 
@@ -238,36 +238,117 @@ export function linalgTests(getBackend: () => Backend) {
         }
       });
 
-      it.skip('Q is orthogonal (Q @ Q^T = I)', async () => {
+      it('Q is orthogonal (Q^T @ Q = I)', async () => {
         const a = mat([1.0, 2.0, 3.0, 4.0], 2, 2);
         const { q } = B.qr(a);
 
-        // Q @ Q^T should be identity
+        // Q^T @ Q should be identity (for square Q)
         const qt = B.transpose(q);
-        const qqt = B.matmul(q, qt);
-        const data = await getData(qqt, B);
+        const qtq = B.matmul(qt, q);
+        const data = await getData(qtq, B);
         expect(approxEq(data[0], 1.0, RELAXED_TOL)).toBe(true);
         expect(approxEq(data[1], 0.0, RELAXED_TOL)).toBe(true);
         expect(approxEq(data[2], 0.0, RELAXED_TOL)).toBe(true);
         expect(approxEq(data[3], 1.0, RELAXED_TOL)).toBe(true);
+      });
+
+      it('R is upper triangular', async () => {
+        const a = mat([1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0], 3, 3);
+        const { r } = B.qr(a);
+        const rData = await getData(r, B);
+
+        // Check lower triangular elements are ~0
+        expect(approxEq(rData[3], 0.0, RELAXED_TOL)).toBe(true); // r[1,0]
+        expect(approxEq(rData[6], 0.0, RELAXED_TOL)).toBe(true); // r[2,0]
+        expect(approxEq(rData[7], 0.0, RELAXED_TOL)).toBe(true); // r[2,1]
       });
     });
 
     // ============ svd ============
 
     describe('svd', () => {
-      it.skip('computes SVD with correct shapes', async () => {
+      it('computes SVD with correct shapes', async () => {
         const a = mat([1.0, 2.0, 3.0, 4.0, 5.0, 6.0], 2, 3);
         const { u, s, vt } = B.svd(a);
 
-        // Verify shapes
-        expect(u.shape[0]).toBe(2);
-        expect(s.shape[0]).toBe(2);
-        expect(vt.shape[1]).toBe(3);
+        // Verify shapes: A is 2x3, so U is 2x2, S is 2, Vt is 2x3
+        expect(u.shape).toEqual([2, 2]);
+        expect(s.shape).toEqual([2]);
+        expect(vt.shape).toEqual([2, 3]);
 
-        // Singular values should be non-negative
+        // Singular values should be non-negative and sorted descending
         const sData = await getData(s, B);
-        expect(sData.every((x) => x >= 0)).toBe(true);
+        expect(sData.every((x: number) => x >= 0)).toBe(true);
+        expect(sData[0] >= sData[1]).toBe(true);
+      });
+
+      it('reconstructs A from U @ diag(S) @ Vt', async () => {
+        // Simple 2x2 matrix
+        const a = mat([3.0, 1.0, 1.0, 3.0], 2, 2);
+        const { u, s, vt } = B.svd(a);
+
+        // Reconstruct: A = U @ diag(S) @ Vt
+        const sData = await getData(s, B);
+        const uData = await getData(u, B);
+        const vtData = await getData(vt, B);
+
+        // Manually compute U @ diag(S) @ Vt
+        // For 2x2: result[i,j] = sum_k u[i,k] * s[k] * vt[k,j]
+        const reconstructed = new Float64Array(4);
+        for (let i = 0; i < 2; i++) {
+          for (let j = 0; j < 2; j++) {
+            let sum = 0;
+            for (let k = 0; k < 2; k++) {
+              sum += uData[i * 2 + k] * sData[k] * vtData[k * 2 + j];
+            }
+            reconstructed[i * 2 + j] = sum;
+          }
+        }
+
+        // Compare with original
+        const aData = await getData(a, B);
+        for (let i = 0; i < 4; i++) {
+          expect(approxEq(aData[i], reconstructed[i], RELAXED_TOL)).toBe(true);
+        }
+      });
+
+      it('U has orthonormal columns', async () => {
+        const a = mat([1.0, 2.0, 3.0, 4.0], 2, 2);
+        const { u } = B.svd(a);
+
+        // U^T @ U should be identity
+        const ut = B.transpose(u);
+        const utu = B.matmul(ut, u);
+        const data = await getData(utu, B);
+        expect(approxEq(data[0], 1.0, RELAXED_TOL)).toBe(true);
+        expect(approxEq(data[1], 0.0, RELAXED_TOL)).toBe(true);
+        expect(approxEq(data[2], 0.0, RELAXED_TOL)).toBe(true);
+        expect(approxEq(data[3], 1.0, RELAXED_TOL)).toBe(true);
+      });
+
+      it('Vt has orthonormal rows', async () => {
+        const a = mat([1.0, 2.0, 3.0, 4.0], 2, 2);
+        const { vt } = B.svd(a);
+
+        // Vt @ Vt^T should be identity
+        const v = B.transpose(vt);
+        const vtv = B.matmul(vt, v);
+        const data = await getData(vtv, B);
+        expect(approxEq(data[0], 1.0, RELAXED_TOL)).toBe(true);
+        expect(approxEq(data[1], 0.0, RELAXED_TOL)).toBe(true);
+        expect(approxEq(data[2], 0.0, RELAXED_TOL)).toBe(true);
+        expect(approxEq(data[3], 1.0, RELAXED_TOL)).toBe(true);
+      });
+
+      // NumPy parity: singular values of [[1,2],[3,4]] are ~5.465 and ~0.366
+      it('matches NumPy singular values', async () => {
+        const a = mat([1.0, 2.0, 3.0, 4.0], 2, 2);
+        const { s } = B.svd(a);
+        const sData = await getData(s, B);
+
+        // NumPy: np.linalg.svd([[1,2],[3,4]]) gives [5.4649857, 0.36596619]
+        expect(approxEq(sData[0], 5.4649857, 0.01)).toBe(true);
+        expect(approxEq(sData[1], 0.36596619, 0.01)).toBe(true);
       });
     });
 

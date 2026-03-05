@@ -1849,39 +1849,148 @@ export class JsBackend implements Backend {
   }
 
   svd(arr: NDArray): { u: NDArray; s: NDArray; vt: NDArray } {
-    // Simplified SVD using power iteration (not production quality)
-    // For a real implementation, use a proper library
+    // Full SVD using power iteration with deflation
+    // Computes A = U * Σ * V^T
     if (arr.shape.length !== 2) throw new Error('svd requires 2D');
     const [m, n] = arr.shape;
     const k = Math.min(m, n);
+    const arrData = arr.data;
 
-    // For now, return placeholder shapes
-    // A real implementation would compute actual SVD
-    const u = this.eye(m);
-    const s = this.zeros([k]);
-    const vt = this.eye(n);
-
-    // Compute singular values as sqrt of eigenvalues of A^T A
+    // Compute A^T A
     const at = this.transpose(arr);
     const ata = this.matmul(at, arr);
+    const ataData = ata.data;
 
-    // Simple approximation: diagonal elements
-    for (let i = 0; i < k; i++) {
-      s.data[i] = Math.sqrt(Math.abs(ata.data[i * n + i]));
+    // Working copy for deflation
+    const ataWork = new Float64Array(ataData);
+    const singularValues = new Float64Array(k);
+    const vMatrix = new Float64Array(n * k);
+
+    // Power iteration to find eigenvalues and eigenvectors of A^T A
+    for (let svIdx = 0; svIdx < k; svIdx++) {
+      // Initialize random unit vector
+      const v = new Float64Array(n);
+      for (let j = 0; j < n; j++) v[j] = Math.random() - 0.5;
+
+      // Orthogonalize against previously found eigenvectors
+      for (let prevIdx = 0; prevIdx < svIdx; prevIdx++) {
+        let dot = 0;
+        for (let j = 0; j < n; j++) {
+          dot += v[j] * vMatrix[j * k + prevIdx];
+        }
+        for (let j = 0; j < n; j++) {
+          v[j] -= dot * vMatrix[j * k + prevIdx];
+        }
+      }
+
+      let vNorm = Math.sqrt(v.reduce((acc, x) => acc + x * x, 0));
+      if (vNorm > 1e-10) {
+        for (let j = 0; j < n; j++) v[j] /= vNorm;
+      }
+
+      // Power iteration with convergence check
+      const MAX_ITER = 30;
+      const CONV_TOL = 1e-10;
+      let eigenvalue = 0;
+      let converged = false;
+
+      for (let iter = 0; iter < MAX_ITER && !converged; iter++) {
+        // v_new = ATA * v
+        const vNew = new Float64Array(n);
+        for (let i = 0; i < n; i++) {
+          let sum = 0;
+          for (let j = 0; j < n; j++) {
+            sum += ataWork[i * n + j] * v[j];
+          }
+          vNew[i] = sum;
+        }
+
+        // Normalize
+        vNorm = Math.sqrt(vNew.reduce((acc, x) => acc + x * x, 0));
+        eigenvalue = vNorm;
+
+        // Check convergence
+        let diff = 0;
+        for (let j = 0; j < n; j++) {
+          const vNewNorm = vNorm > 1e-10 ? vNew[j] / vNorm : 0;
+          diff += (vNewNorm - v[j]) ** 2;
+        }
+        converged = Math.sqrt(diff) < CONV_TOL;
+
+        // Update v
+        if (vNorm > 1e-10) {
+          for (let j = 0; j < n; j++) v[j] = vNew[j] / vNorm;
+        }
+
+        // Re-orthogonalize against previous eigenvectors
+        for (let prevIdx = 0; prevIdx < svIdx; prevIdx++) {
+          let dot = 0;
+          for (let j = 0; j < n; j++) {
+            dot += v[j] * vMatrix[j * k + prevIdx];
+          }
+          for (let j = 0; j < n; j++) {
+            v[j] -= dot * vMatrix[j * k + prevIdx];
+          }
+        }
+        // Re-normalize
+        vNorm = Math.sqrt(v.reduce((acc, x) => acc + x * x, 0));
+        if (vNorm > 1e-10) {
+          for (let j = 0; j < n; j++) v[j] /= vNorm;
+        }
+      }
+
+      // Store singular value and V column
+      singularValues[svIdx] = Math.sqrt(Math.abs(eigenvalue));
+      for (let j = 0; j < n; j++) {
+        vMatrix[j * k + svIdx] = v[j];
+      }
+
+      // Deflate: ATA -= eigenvalue * v * v^T
+      for (let row = 0; row < n; row++) {
+        for (let col = 0; col < n; col++) {
+          ataWork[row * n + col] -= eigenvalue * v[row] * v[col];
+        }
+      }
     }
 
     // Sort descending
     const indices = Array.from({ length: k }, (_, i) => i);
-    indices.sort((a, b) => s.data[b] - s.data[a]);
+    indices.sort((a, b) => singularValues[b] - singularValues[a]);
+
     const sortedS = new Float64Array(k);
+    const sortedV = new Float64Array(n * k);
     for (let i = 0; i < k; i++) {
-      sortedS[i] = s.data[indices[i]];
+      sortedS[i] = singularValues[indices[i]];
+      for (let j = 0; j < n; j++) {
+        sortedV[j * k + i] = vMatrix[j * k + indices[i]];
+      }
+    }
+
+    // Compute U = A * V * Σ^(-1)
+    const vArr = new JsNDArray(sortedV, [n, k]);
+    const av = this.matmul(arr, vArr);
+    const avData = av.data;
+
+    const uData = new Float64Array(m * k);
+    for (let i = 0; i < m; i++) {
+      for (let j = 0; j < k; j++) {
+        const sigma = sortedS[j];
+        uData[i * k + j] = sigma > 1e-10 ? avData[i * k + j] / sigma : 0;
+      }
+    }
+
+    // Transpose V to get V^T
+    const vtData = new Float64Array(k * n);
+    for (let i = 0; i < k; i++) {
+      for (let j = 0; j < n; j++) {
+        vtData[i * n + j] = sortedV[j * k + i];
+      }
     }
 
     return {
-      u: new JsNDArray(u.data.slice(0, m * k), [m, k]),
+      u: new JsNDArray(uData, [m, k]),
       s: new JsNDArray(sortedS, [k]),
-      vt: new JsNDArray(vt.data.slice(0, k * n), [k, n]),
+      vt: new JsNDArray(vtData, [k, n]),
     };
   }
 

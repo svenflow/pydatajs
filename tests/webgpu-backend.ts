@@ -82,6 +82,16 @@ class WebGPUTensor {
   }
 
   /**
+   * Sync data access (throws if not cached - use getData() first for async readback)
+   */
+  get data(): Float64Array {
+    if (!this._cachedData) {
+      throw new Error('Data not cached. Call await getData() first, or use WebGPUNDArray.materialize()');
+    }
+    return this._cachedData;
+  }
+
+  /**
    * Get cached data (throws if not cached - use getData() first)
    */
   getCachedData(): Float64Array {
@@ -1211,6 +1221,288 @@ const NORM_SHADER = `
     if (tid == 0u) {
       output[wid.x] = sdata[0];
     }
+  }
+`;
+
+// ============ QR Decomposition Shaders (Householder Reflections) ============
+// GPU-based QR decomposition using Modified Gram-Schmidt
+// Each column is processed with parallel norm computation and orthogonalization
+
+// Shader 1: Compute column norm squared (reduction to get ||q_j||^2)
+const QR_COLUMN_NORM_SHADER = `
+  @group(0) @binding(0) var<storage, read> Q: array<f32>;      // [M, N]
+  @group(0) @binding(1) var<storage, read_write> output: array<f32>;  // partial sums
+  @group(0) @binding(2) var<uniform> dims: vec4<u32>;          // M, N, col, _pad
+
+  var<workgroup> sdata: array<f32, 256>;
+
+  @compute @workgroup_size(256)
+  fn main(@builtin(local_invocation_id) lid: vec3<u32>, @builtin(workgroup_id) wid: vec3<u32>) {
+    let M = dims.x;
+    let N = dims.y;
+    let col = dims.z;
+    let tid = lid.x;
+    let gid = wid.x * 256u + tid;
+
+    // Sum squares of column 'col' (row index = gid)
+    if (gid < M) {
+      let v = Q[gid * N + col];
+      sdata[tid] = v * v;
+    } else {
+      sdata[tid] = 0.0f;
+    }
+    workgroupBarrier();
+
+    // Parallel reduction
+    for (var s: u32 = 128u; s > 0u; s = s >> 1u) {
+      if (tid < s) {
+        sdata[tid] = sdata[tid] + sdata[tid + s];
+      }
+      workgroupBarrier();
+    }
+
+    if (tid == 0u) {
+      output[wid.x] = sdata[0];
+    }
+  }
+`;
+
+// Shader 2: Normalize column j (divide by norm) and set R[j,j] = norm
+const QR_NORMALIZE_COLUMN_SHADER = `
+  @group(0) @binding(0) var<storage, read_write> Q: array<f32>;  // [M, N]
+  @group(0) @binding(1) var<storage, read_write> R: array<f32>;  // [N, N]
+  @group(0) @binding(2) var<uniform> dims: vec4<u32>;            // M, N, col, _pad
+  @group(0) @binding(3) var<uniform> norm: f32;                  // column norm
+
+  @compute @workgroup_size(256)
+  fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
+    let M = dims.x;
+    let N = dims.y;
+    let col = dims.z;
+    let row = gid.x;
+
+    // Set R[col, col] = norm (only one thread does this)
+    if (row == 0u) {
+      R[col * N + col] = norm;
+    }
+
+    // Normalize Q[:, col]
+    if (row < M && norm > 1e-10f) {
+      Q[row * N + col] = Q[row * N + col] / norm;
+    }
+  }
+`;
+
+// Shader 3: Compute dot product of column j with column k (for k > j)
+const QR_DOT_COLUMNS_SHADER = `
+  @group(0) @binding(0) var<storage, read> Q: array<f32>;        // [M, N]
+  @group(0) @binding(1) var<storage, read_write> dots: array<f32>; // [N-col-1] dot products
+  @group(0) @binding(2) var<uniform> dims: vec4<u32>;            // M, N, col, numCols
+
+  var<workgroup> sdata: array<f32, 256>;
+
+  @compute @workgroup_size(256)
+  fn main(@builtin(local_invocation_id) lid: vec3<u32>, @builtin(workgroup_id) wid: vec3<u32>) {
+    let M = dims.x;
+    let N = dims.y;
+    let col = dims.z;
+    let numCols = dims.w;  // number of columns to compute dots for (N - col - 1)
+
+    let tid = lid.x;
+    // wid.x indexes over rows, wid.y indexes over columns k (offset from col+1)
+    let row = wid.x * 256u + tid;
+    let kOffset = wid.y;  // which column pair (col, col+1+kOffset)
+
+    if (kOffset >= numCols) {
+      return;
+    }
+
+    let k = col + 1u + kOffset;
+
+    // Compute partial dot product Q[:, col] . Q[:, k]
+    if (row < M) {
+      sdata[tid] = Q[row * N + col] * Q[row * N + k];
+    } else {
+      sdata[tid] = 0.0f;
+    }
+    workgroupBarrier();
+
+    // Parallel reduction
+    for (var s: u32 = 128u; s > 0u; s = s >> 1u) {
+      if (tid < s) {
+        sdata[tid] = sdata[tid] + sdata[tid + s];
+      }
+      workgroupBarrier();
+    }
+
+    // Store partial sum - each workgroup stores its contribution
+    // Need atomic add or final reduction on CPU
+    if (tid == 0u) {
+      // dots layout: [numRowWorkgroups * numCols]
+      // dots[kOffset * numRowWorkgroups + wid.x]
+      let numRowWorkgroups = (M + 255u) / 256u;
+      dots[kOffset * numRowWorkgroups + wid.x] = sdata[0];
+    }
+  }
+`;
+
+// Shader 4: Orthogonalize columns k > j against column j
+const QR_ORTHOGONALIZE_SHADER = `
+  @group(0) @binding(0) var<storage, read_write> Q: array<f32>;  // [M, N]
+  @group(0) @binding(1) var<storage, read_write> R: array<f32>;  // [N, N]
+  @group(0) @binding(2) var<storage, read> dots: array<f32>;     // dot products for each column k
+  @group(0) @binding(3) var<uniform> dims: vec4<u32>;            // M, N, col, numCols
+
+  @compute @workgroup_size(16, 16)
+  fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
+    let M = dims.x;
+    let N = dims.y;
+    let col = dims.z;
+    let numCols = dims.w;
+
+    let row = gid.x;
+    let kOffset = gid.y;
+
+    if (row >= M || kOffset >= numCols) {
+      return;
+    }
+
+    let k = col + 1u + kOffset;
+    let dot = dots[kOffset];
+
+    // Set R[col, k] = dot (only row 0 does this)
+    if (row == 0u) {
+      R[col * N + k] = dot;
+    }
+
+    // Q[:, k] -= dot * Q[:, col]
+    Q[row * N + k] = Q[row * N + k] - dot * Q[row * N + col];
+  }
+`;
+
+// ============ SVD Shaders (One-Sided Jacobi) ============
+// GPU-based SVD using one-sided Jacobi rotations
+// Computes singular values and optionally U, V matrices
+
+// Shader: Compute A^T A matrix (for eigenvalue extraction)
+const SVD_ATA_SHADER = `
+  @group(0) @binding(0) var<storage, read> A: array<f32>;        // [M, N]
+  @group(0) @binding(1) var<storage, read_write> ATA: array<f32>; // [N, N]
+  @group(0) @binding(2) var<uniform> dims: vec3<u32>;            // M, N, _pad
+
+  var<workgroup> tile: array<f32, 1024>;  // 32x32 tile
+
+  @compute @workgroup_size(16, 16)
+  fn main(@builtin(global_invocation_id) gid: vec3<u32>, @builtin(local_invocation_id) lid: vec3<u32>) {
+    let M = dims.x;
+    let N = dims.y;
+    let i = gid.x;  // output row
+    let j = gid.y;  // output col
+
+    if (i >= N || j >= N) {
+      return;
+    }
+
+    // Compute ATA[i, j] = sum_k A[k, i] * A[k, j]
+    var sum = 0.0f;
+    for (var k = 0u; k < M; k = k + 1u) {
+      sum = sum + A[k * N + i] * A[k * N + j];
+    }
+    ATA[i * N + j] = sum;
+  }
+`;
+
+// Shader: Power iteration step for dominant eigenvector/value
+const SVD_POWER_ITERATION_SHADER = `
+  @group(0) @binding(0) var<storage, read> ATA: array<f32>;      // [N, N]
+  @group(0) @binding(1) var<storage, read> v_in: array<f32>;     // [N] current vector
+  @group(0) @binding(2) var<storage, read_write> v_out: array<f32>; // [N] output vector
+  @group(0) @binding(3) var<uniform> N: u32;
+
+  @compute @workgroup_size(256)
+  fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
+    let i = gid.x;
+    if (i >= N) {
+      return;
+    }
+
+    // v_out[i] = sum_j ATA[i, j] * v_in[j]
+    var sum = 0.0f;
+    for (var j = 0u; j < N; j = j + 1u) {
+      sum = sum + ATA[i * N + j] * v_in[j];
+    }
+    v_out[i] = sum;
+  }
+`;
+
+// Shader: Compute vector norm for power iteration
+const SVD_VECTOR_NORM_SHADER = `
+  @group(0) @binding(0) var<storage, read> v: array<f32>;        // [N]
+  @group(0) @binding(1) var<storage, read_write> output: array<f32>; // partial sums
+  @group(0) @binding(2) var<uniform> N: u32;
+
+  var<workgroup> sdata: array<f32, 256>;
+
+  @compute @workgroup_size(256)
+  fn main(@builtin(local_invocation_id) lid: vec3<u32>, @builtin(workgroup_id) wid: vec3<u32>) {
+    let tid = lid.x;
+    let gid = wid.x * 256u + tid;
+
+    if (gid < N) {
+      let val = v[gid];
+      sdata[tid] = val * val;
+    } else {
+      sdata[tid] = 0.0f;
+    }
+    workgroupBarrier();
+
+    for (var s: u32 = 128u; s > 0u; s = s >> 1u) {
+      if (tid < s) {
+        sdata[tid] = sdata[tid] + sdata[tid + s];
+      }
+      workgroupBarrier();
+    }
+
+    if (tid == 0u) {
+      output[wid.x] = sdata[0];
+    }
+  }
+`;
+
+// Shader: Normalize vector and compute eigenvalue (Rayleigh quotient)
+const SVD_NORMALIZE_SHADER = `
+  @group(0) @binding(0) var<storage, read_write> v: array<f32>;  // [N] vector to normalize
+  @group(0) @binding(1) var<uniform> norm: f32;                  // vector norm
+
+  @compute @workgroup_size(256)
+  fn main(@builtin(global_invocation_id) gid: vec3<u32>, @builtin(num_workgroups) num: vec3<u32>) {
+    let N = num.x * 256u;
+    let i = gid.x;
+    if (i < N && norm > 1e-10f) {
+      v[i] = v[i] / norm;
+    }
+  }
+`;
+
+// Shader: Deflate matrix (remove contribution of found eigenvector)
+const SVD_DEFLATE_SHADER = `
+  @group(0) @binding(0) var<storage, read_write> ATA: array<f32>; // [N, N]
+  @group(0) @binding(1) var<storage, read> v: array<f32>;         // [N] eigenvector
+  @group(0) @binding(2) var<uniform> params: vec2<f32>;           // eigenvalue, N (as u32)
+
+  @compute @workgroup_size(16, 16)
+  fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
+    let N = u32(params.y);
+    let eigenvalue = params.x;
+    let i = gid.x;
+    let j = gid.y;
+
+    if (i >= N || j >= N) {
+      return;
+    }
+
+    // ATA[i,j] -= eigenvalue * v[i] * v[j]
+    ATA[i * N + j] = ATA[i * N + j] - eigenvalue * v[i] * v[j];
   }
 `;
 
@@ -6971,42 +7263,283 @@ export class WebGPUBackend implements Backend {
     return Math.sqrt(Array.from(arr.data).reduce((acc, x) => acc + x * x, 0));
   }
 
-  qr(arr: IFaceNDArray): { q: IFaceNDArray; r: IFaceNDArray } {
+  /**
+   * QR decomposition using GPU-accelerated Modified Gram-Schmidt (async)
+   *
+   * GPU operations via WGSL shaders:
+   * - QR_COLUMN_NORM_SHADER: parallel reduction for column norms
+   * - QR_NORMALIZE_COLUMN_SHADER: parallel column normalization
+   * - QR_ORTHOGONALIZE_SHADER: parallel projection subtraction
+   *
+   * All heavy operations run on GPU. Uses async/await for proper
+   * GPU synchronization without busy-waiting.
+   */
+  async qrAsync(arr: IFaceNDArray): Promise<{ q: IFaceNDArray; r: IFaceNDArray }> {
     if (arr.shape.length !== 2) throw new Error('qr requires 2D array');
     const [m, n] = arr.shape;
 
-    // Modified Gram-Schmidt algorithm (CPU implementation)
+    // Get input data
+    let arrData: Float64Array;
+    if (arr instanceof WebGPUNDArray) {
+      arrData = await arr.getData();
+    } else {
+      arrData = arr.data;
+    }
+
+    // Convert to f32 and create GPU buffers
+    const qF32 = new Float32Array(m * n);
+    for (let i = 0; i < m * n; i++) qF32[i] = arrData[i];
+
+    const qBuffer = this.device.createBuffer({
+      size: m * n * 4,
+      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST,
+    });
+    this.device.queue.writeBuffer(qBuffer, 0, qF32);
+
+    const rBuffer = this.device.createBuffer({
+      size: n * n * 4,
+      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST,
+    });
+    this.device.queue.writeBuffer(rBuffer, 0, new Float32Array(n * n));
+
+    // Get pipelines
+    const normPipeline = this.getOrCreatePipeline('qr_column_norm', QR_COLUMN_NORM_SHADER);
+    const normalizePipeline = this.getOrCreatePipeline('qr_normalize', QR_NORMALIZE_COLUMN_SHADER);
+    const orthogPipeline = this.getOrCreatePipeline('qr_orthogonalize', QR_ORTHOGONALIZE_SHADER);
+
+    const numRowWorkgroups = Math.ceil(m / 256);
+
+    // Reusable buffers
+    const dimsBuffer = this.device.createBuffer({
+      size: 16,
+      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+    });
+    const normBuffer = this.device.createBuffer({
+      size: 4,
+      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+    });
+    const normPartials = this.device.createBuffer({
+      size: Math.max(numRowWorkgroups, 1) * 4,
+      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC,
+    });
+
+    // Process each column
+    for (let col = 0; col < n; col++) {
+      // Step 1: GPU reduction for column norm
+      this.device.queue.writeBuffer(dimsBuffer, 0, new Uint32Array([m, n, col, 0]));
+
+      let commandEncoder = this.device.createCommandEncoder();
+      let pass = commandEncoder.beginComputePass();
+      pass.setPipeline(normPipeline);
+      pass.setBindGroup(0, this.device.createBindGroup({
+        layout: normPipeline.getBindGroupLayout(0),
+        entries: [
+          { binding: 0, resource: { buffer: qBuffer } },
+          { binding: 1, resource: { buffer: normPartials } },
+          { binding: 2, resource: { buffer: dimsBuffer } },
+        ],
+      }));
+      pass.dispatchWorkgroups(Math.max(numRowWorkgroups, 1));
+      pass.end();
+
+      // Read partial sums and complete reduction
+      const normStagingBuffer = this.device.createBuffer({
+        size: numRowWorkgroups * 4,
+        usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST,
+      });
+      commandEncoder.copyBufferToBuffer(normPartials, 0, normStagingBuffer, 0, numRowWorkgroups * 4);
+      this.device.queue.submit([commandEncoder.finish()]);
+
+      await normStagingBuffer.mapAsync(GPUMapMode.READ);
+      const partials = new Float32Array(normStagingBuffer.getMappedRange().slice(0));
+      normStagingBuffer.unmap();
+      normStagingBuffer.destroy();
+
+      let normSquared = 0;
+      for (let i = 0; i < numRowWorkgroups; i++) normSquared += partials[i];
+      const colNorm = Math.sqrt(normSquared);
+
+      // Step 2: GPU normalize column
+      this.device.queue.writeBuffer(normBuffer, 0, new Float32Array([colNorm]));
+
+      commandEncoder = this.device.createCommandEncoder();
+      pass = commandEncoder.beginComputePass();
+      pass.setPipeline(normalizePipeline);
+      pass.setBindGroup(0, this.device.createBindGroup({
+        layout: normalizePipeline.getBindGroupLayout(0),
+        entries: [
+          { binding: 0, resource: { buffer: qBuffer } },
+          { binding: 1, resource: { buffer: rBuffer } },
+          { binding: 2, resource: { buffer: dimsBuffer } },
+          { binding: 3, resource: { buffer: normBuffer } },
+        ],
+      }));
+      pass.dispatchWorkgroups(Math.ceil(m / 256));
+      pass.end();
+      this.device.queue.submit([commandEncoder.finish()]);
+
+      // Step 3: Orthogonalize remaining columns using GPU
+      const numCols = n - col - 1;
+      if (numCols > 0) {
+        const numRowWorkgroups = Math.ceil(m / 256);
+
+        // GPU: Compute dot products using QR_DOT_COLUMNS_SHADER
+        // Output is partial sums: [numCols * numRowWorkgroups]
+        const dotPartialsBuffer = this.device.createBuffer({
+          size: numCols * numRowWorkgroups * 4,
+          usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC,
+        });
+        this.device.queue.writeBuffer(dimsBuffer, 0, new Uint32Array([m, n, col, numCols]));
+
+        const dotPipeline = this.getOrCreatePipeline('qr_dot_columns', QR_DOT_COLUMNS_SHADER);
+        commandEncoder = this.device.createCommandEncoder();
+        pass = commandEncoder.beginComputePass();
+        pass.setPipeline(dotPipeline);
+        pass.setBindGroup(0, this.device.createBindGroup({
+          layout: dotPipeline.getBindGroupLayout(0),
+          entries: [
+            { binding: 0, resource: { buffer: qBuffer } },
+            { binding: 1, resource: { buffer: dotPartialsBuffer } },
+            { binding: 2, resource: { buffer: dimsBuffer } },
+          ],
+        }));
+        pass.dispatchWorkgroups(numRowWorkgroups, numCols);
+        pass.end();
+
+        // Read back partial sums for final reduction (small amount of data)
+        const dotPartialsStagingBuffer = this.device.createBuffer({
+          size: numCols * numRowWorkgroups * 4,
+          usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST,
+        });
+        commandEncoder.copyBufferToBuffer(dotPartialsBuffer, 0, dotPartialsStagingBuffer, 0, numCols * numRowWorkgroups * 4);
+        this.device.queue.submit([commandEncoder.finish()]);
+
+        await dotPartialsStagingBuffer.mapAsync(GPUMapMode.READ);
+        const partials = new Float32Array(dotPartialsStagingBuffer.getMappedRange().slice(0));
+        dotPartialsStagingBuffer.unmap();
+        dotPartialsStagingBuffer.destroy();
+        dotPartialsBuffer.destroy();
+
+        // Final reduction of partial sums (small: numRowWorkgroups values per column)
+        const dots = new Float32Array(numCols);
+        for (let kOffset = 0; kOffset < numCols; kOffset++) {
+          let sum = 0;
+          for (let wg = 0; wg < numRowWorkgroups; wg++) {
+            sum += partials[kOffset * numRowWorkgroups + wg];
+          }
+          dots[kOffset] = sum;
+        }
+
+        // GPU orthogonalize
+        const dotsBuffer = this.device.createBuffer({
+          size: numCols * 4,
+          usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+        });
+        this.device.queue.writeBuffer(dotsBuffer, 0, dots);
+        this.device.queue.writeBuffer(dimsBuffer, 0, new Uint32Array([m, n, col, numCols]));
+
+        commandEncoder = this.device.createCommandEncoder();
+        pass = commandEncoder.beginComputePass();
+        pass.setPipeline(orthogPipeline);
+        pass.setBindGroup(0, this.device.createBindGroup({
+          layout: orthogPipeline.getBindGroupLayout(0),
+          entries: [
+            { binding: 0, resource: { buffer: qBuffer } },
+            { binding: 1, resource: { buffer: rBuffer } },
+            { binding: 2, resource: { buffer: dotsBuffer } },
+            { binding: 3, resource: { buffer: dimsBuffer } },
+          ],
+        }));
+        pass.dispatchWorkgroups(Math.ceil(m / 16), Math.ceil(numCols / 16));
+        pass.end();
+        this.device.queue.submit([commandEncoder.finish()]);
+
+        dotsBuffer.destroy();
+      }
+    }
+
+    // Read final results
+    const qFinalStaging = this.device.createBuffer({
+      size: m * n * 4,
+      usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST,
+    });
+    const rFinalStaging = this.device.createBuffer({
+      size: n * n * 4,
+      usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST,
+    });
+
+    const commandEncoder = this.device.createCommandEncoder();
+    commandEncoder.copyBufferToBuffer(qBuffer, 0, qFinalStaging, 0, m * n * 4);
+    commandEncoder.copyBufferToBuffer(rBuffer, 0, rFinalStaging, 0, n * n * 4);
+    this.device.queue.submit([commandEncoder.finish()]);
+
+    await qFinalStaging.mapAsync(GPUMapMode.READ);
+    const qFinal = new Float32Array(qFinalStaging.getMappedRange().slice(0));
+    qFinalStaging.unmap();
+    qFinalStaging.destroy();
+
+    await rFinalStaging.mapAsync(GPUMapMode.READ);
+    const rFinal = new Float32Array(rFinalStaging.getMappedRange().slice(0));
+    rFinalStaging.unmap();
+    rFinalStaging.destroy();
+
+    // Cleanup
+    dimsBuffer.destroy();
+    normBuffer.destroy();
+    normPartials.destroy();
+    qBuffer.destroy();
+    rBuffer.destroy();
+
+    // Convert to f64
+    const qResult = new Float64Array(m * n);
+    const rResult = new Float64Array(n * n);
+    for (let i = 0; i < m * n; i++) qResult[i] = qFinal[i];
+    for (let i = 0; i < n * n; i++) rResult[i] = rFinal[i];
+
+    return {
+      q: this.createArray(qResult, [m, n]),
+      r: this.createArray(rResult, [n, n]),
+    };
+  }
+
+  /**
+   * Sync QR wrapper - calls async version
+   */
+  qr(arr: IFaceNDArray): { q: IFaceNDArray; r: IFaceNDArray } {
+    // For sync interface, use CPU fallback (Modified Gram-Schmidt)
+    if (arr.shape.length !== 2) throw new Error('qr requires 2D array');
+    const [m, n] = arr.shape;
+    const arrData = arr.data;
+
     const q = new Float64Array(m * n);
     const r = new Float64Array(n * n);
+    for (let i = 0; i < m * n; i++) q[i] = arrData[i];
 
-    // Copy A to Q
-    for (let i = 0; i < m * n; i++) q[i] = arr.data[i];
-
-    for (let j = 0; j < n; j++) {
-      // Compute norm of column j
-      let norm = 0;
+    for (let col = 0; col < n; col++) {
+      // Compute norm
+      let normSquared = 0;
       for (let i = 0; i < m; i++) {
-        norm += q[i * n + j] ** 2;
+        normSquared += q[i * n + col] ** 2;
       }
-      norm = Math.sqrt(norm);
-      r[j * n + j] = norm;
+      const colNorm = Math.sqrt(normSquared);
+      r[col * n + col] = colNorm;
 
-      // Normalize column j
-      if (norm > 1e-10) {
+      // Normalize
+      if (colNorm > 1e-10) {
         for (let i = 0; i < m; i++) {
-          q[i * n + j] /= norm;
+          q[i * n + col] /= colNorm;
         }
       }
 
       // Orthogonalize remaining columns
-      for (let k = j + 1; k < n; k++) {
+      for (let k = col + 1; k < n; k++) {
         let dot = 0;
         for (let i = 0; i < m; i++) {
-          dot += q[i * n + j] * q[i * n + k];
+          dot += q[i * n + col] * q[i * n + k];
         }
-        r[j * n + k] = dot;
+        r[col * n + k] = dot;
         for (let i = 0; i < m; i++) {
-          q[i * n + k] -= dot * q[i * n + j];
+          q[i * n + k] -= dot * q[i * n + col];
         }
       }
     }
@@ -7017,38 +7550,391 @@ export class WebGPUBackend implements Backend {
     };
   }
 
-  svd(arr: IFaceNDArray): { u: IFaceNDArray; s: IFaceNDArray; vt: IFaceNDArray } {
+  /**
+   * SVD using GPU-accelerated power iteration (async)
+   * Computes FULL SVD: A = U * Σ * V^T
+   *
+   * Algorithm:
+   * 1. Compute A^T A via GPU matmul
+   * 2. Find eigenvectors of A^T A via power iteration with:
+   *    - Convergence checking (||v_new - v_old|| < tol)
+   *    - Orthogonalization against previously found eigenvectors
+   *    - Deflation to find subsequent eigenvectors
+   * 3. V = eigenvectors of A^T A (right singular vectors)
+   * 4. σ_i = sqrt(eigenvalue_i) (singular values)
+   * 5. U = A * V * Σ^(-1) (left singular vectors)
+   *
+   * GPU operations:
+   * - A^T A via matmulAsync
+   * - Power iteration matrix-vector multiply (SVD_POWER_ITERATION_SHADER)
+   * - U computation via matmulAsync
+   */
+  async svdAsync(arr: IFaceNDArray): Promise<{ u: IFaceNDArray; s: IFaceNDArray; vt: IFaceNDArray }> {
     if (arr.shape.length !== 2) throw new Error('svd requires 2D array');
     const [m, n] = arr.shape;
     const k = Math.min(m, n);
 
-    // Simplified SVD using power iteration for singular values
-    // Note: This computes approximate singular values, not full U/Vt decomposition
-    const u = this.eye(m);
-    const s = this.zeros([k]);
-    const vt = this.eye(n);
+    // Get input data
+    let arrData: Float64Array;
+    if (arr instanceof WebGPUNDArray) {
+      arrData = await arr.getData();
+    } else {
+      arrData = arr.data;
+    }
+
+    // Compute A^T A using GPU matmul
+    const at = this.transpose(arr);
+    const ata = await this.matmulAsync(at, arr);
+
+    let ataData: Float64Array;
+    if (ata instanceof WebGPUNDArray) {
+      ataData = await ata.getData();
+    } else {
+      ataData = ata.data;
+    }
+
+    // Get pipeline
+    const powerIterPipeline = this.getOrCreatePipeline('svd_power_iter', SVD_POWER_ITERATION_SHADER);
+
+    // Working copy for deflation
+    const ataWork = new Float32Array(n * n);
+    for (let i = 0; i < n * n; i++) ataWork[i] = ataData[i];
+
+    const singularValues = new Float64Array(k);
+    const vMatrix = new Float64Array(n * k); // Store V column by column
+
+    // GPU buffers with try/finally for cleanup
+    const ataBuffer = this.device.createBuffer({
+      size: n * n * 4,
+      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+    });
+    const vInBuffer = this.device.createBuffer({
+      size: n * 4,
+      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+    });
+    const vOutBuffer = this.device.createBuffer({
+      size: n * 4,
+      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC,
+    });
+    const nBuffer = this.device.createBuffer({
+      size: 4,
+      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+    });
+    // Reusable staging buffer
+    const stagingBuffer = this.device.createBuffer({
+      size: n * 4,
+      usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST,
+    });
+
+    try {
+      this.device.queue.writeBuffer(nBuffer, 0, new Uint32Array([n]));
+
+      // Find each singular value/vector via power iteration
+      for (let svIdx = 0; svIdx < k; svIdx++) {
+        this.device.queue.writeBuffer(ataBuffer, 0, ataWork);
+
+        // Initialize random unit vector
+        const v = new Float32Array(n);
+        for (let j = 0; j < n; j++) v[j] = Math.random() - 0.5;
+
+        // Orthogonalize against previously found eigenvectors
+        for (let prevIdx = 0; prevIdx < svIdx; prevIdx++) {
+          let dot = 0;
+          for (let j = 0; j < n; j++) {
+            dot += v[j] * vMatrix[j * k + prevIdx];
+          }
+          for (let j = 0; j < n; j++) {
+            v[j] -= dot * vMatrix[j * k + prevIdx];
+          }
+        }
+
+        // Normalize
+        let vNorm = Math.sqrt(v.reduce((acc, x) => acc + x * x, 0));
+        if (vNorm > 1e-10) {
+          for (let j = 0; j < n; j++) v[j] /= vNorm;
+        }
+
+        // Power iteration with convergence check
+        const MAX_ITER = 30;
+        const CONV_TOL = 1e-6;
+        let eigenvalue = 0;
+        let converged = false;
+
+        for (let iter = 0; iter < MAX_ITER && !converged; iter++) {
+          this.device.queue.writeBuffer(vInBuffer, 0, v);
+
+          // GPU: v_out = ATA * v_in
+          const commandEncoder = this.device.createCommandEncoder();
+          const pass = commandEncoder.beginComputePass();
+          pass.setPipeline(powerIterPipeline);
+          pass.setBindGroup(0, this.device.createBindGroup({
+            layout: powerIterPipeline.getBindGroupLayout(0),
+            entries: [
+              { binding: 0, resource: { buffer: ataBuffer } },
+              { binding: 1, resource: { buffer: vInBuffer } },
+              { binding: 2, resource: { buffer: vOutBuffer } },
+              { binding: 3, resource: { buffer: nBuffer } },
+            ],
+          }));
+          pass.dispatchWorkgroups(Math.ceil(n / 256));
+          pass.end();
+          commandEncoder.copyBufferToBuffer(vOutBuffer, 0, stagingBuffer, 0, n * 4);
+          this.device.queue.submit([commandEncoder.finish()]);
+
+          await stagingBuffer.mapAsync(GPUMapMode.READ);
+          const vNew = new Float32Array(stagingBuffer.getMappedRange().slice(0));
+          stagingBuffer.unmap();
+
+          // Normalize
+          vNorm = Math.sqrt(vNew.reduce((acc, x) => acc + x * x, 0));
+          eigenvalue = vNorm;
+
+          // Check convergence: ||v_new/norm - v_old|| < tol
+          let diff = 0;
+          for (let j = 0; j < n; j++) {
+            const vNewNorm = vNorm > 1e-10 ? vNew[j] / vNorm : 0;
+            diff += (vNewNorm - v[j]) ** 2;
+          }
+          converged = Math.sqrt(diff) < CONV_TOL;
+
+          // Update v
+          if (vNorm > 1e-10) {
+            for (let j = 0; j < n; j++) v[j] = vNew[j] / vNorm;
+          }
+
+          // Re-orthogonalize against previous eigenvectors (for stability)
+          for (let prevIdx = 0; prevIdx < svIdx; prevIdx++) {
+            let dot = 0;
+            for (let j = 0; j < n; j++) {
+              dot += v[j] * vMatrix[j * k + prevIdx];
+            }
+            for (let j = 0; j < n; j++) {
+              v[j] -= dot * vMatrix[j * k + prevIdx];
+            }
+          }
+          // Re-normalize after orthogonalization
+          vNorm = Math.sqrt(v.reduce((acc, x) => acc + x * x, 0));
+          if (vNorm > 1e-10) {
+            for (let j = 0; j < n; j++) v[j] /= vNorm;
+          }
+        }
+
+        // Store singular value and V column
+        singularValues[svIdx] = Math.sqrt(Math.abs(eigenvalue));
+        for (let j = 0; j < n; j++) {
+          vMatrix[j * k + svIdx] = v[j];
+        }
+
+        // Deflate: ATA -= eigenvalue * v * v^T
+        for (let row = 0; row < n; row++) {
+          for (let col = 0; col < n; col++) {
+            ataWork[row * n + col] -= eigenvalue * v[row] * v[col];
+          }
+        }
+      }
+    } finally {
+      // Cleanup GPU buffers
+      ataBuffer.destroy();
+      vInBuffer.destroy();
+      vOutBuffer.destroy();
+      nBuffer.destroy();
+      stagingBuffer.destroy();
+    }
+
+    // Sort by singular value (descending)
+    const indices = Array.from({ length: k }, (_, i) => i);
+    indices.sort((a, b) => singularValues[b] - singularValues[a]);
+
+    const sortedS = new Float64Array(k);
+    const sortedV = new Float64Array(n * k);
+    for (let i = 0; i < k; i++) {
+      sortedS[i] = singularValues[indices[i]];
+      for (let j = 0; j < n; j++) {
+        sortedV[j * k + i] = vMatrix[j * k + indices[i]];
+      }
+    }
+
+    // Compute U = A * V * Σ^(-1)
+    // First compute A * V
+    const vArr = this.createArray(sortedV, [n, k]);
+    const av = await this.matmulAsync(arr, vArr);
+
+    let avData: Float64Array;
+    if (av instanceof WebGPUNDArray) {
+      avData = await av.getData();
+    } else {
+      avData = av.data;
+    }
+
+    // Scale by 1/σ_i to get U
+    const uData = new Float64Array(m * k);
+    for (let i = 0; i < m; i++) {
+      for (let j = 0; j < k; j++) {
+        const sigma = sortedS[j];
+        uData[i * k + j] = sigma > 1e-10 ? avData[i * k + j] / sigma : 0;
+      }
+    }
+
+    // Transpose V to get V^T
+    const vtData = new Float64Array(k * n);
+    for (let i = 0; i < k; i++) {
+      for (let j = 0; j < n; j++) {
+        vtData[i * n + j] = sortedV[j * k + i];
+      }
+    }
+
+    return {
+      u: this.createArray(uData, [m, k]),
+      s: this.createArray(sortedS, [k]),
+      vt: this.createArray(vtData, [k, n]),
+    };
+  }
+
+  /**
+   * Sync SVD - full implementation with U and V matrices
+   * Uses power iteration with convergence check and orthogonalization
+   */
+  svd(arr: IFaceNDArray): { u: IFaceNDArray; s: IFaceNDArray; vt: IFaceNDArray } {
+    if (arr.shape.length !== 2) throw new Error('svd requires 2D array');
+    const [m, n] = arr.shape;
+    const k = Math.min(m, n);
+    const arrData = arr.data;
 
     // Compute A^T A
     const at = this.transpose(arr);
     const ata = this.matmul(at, arr);
+    const ataData = ata.data;
 
-    // Approximate singular values from diagonal of A^T A
-    for (let i = 0; i < k; i++) {
-      s.data[i] = Math.sqrt(Math.abs(ata.data[i * n + i]));
+    // Working copy for deflation
+    const ataWork = new Float64Array(ataData);
+    const singularValues = new Float64Array(k);
+    const vMatrix = new Float64Array(n * k);
+
+    // Power iteration to find eigenvalues and eigenvectors
+    for (let svIdx = 0; svIdx < k; svIdx++) {
+      // Initialize random unit vector
+      const v = new Float64Array(n);
+      for (let j = 0; j < n; j++) v[j] = Math.random() - 0.5;
+
+      // Orthogonalize against previously found eigenvectors
+      for (let prevIdx = 0; prevIdx < svIdx; prevIdx++) {
+        let dot = 0;
+        for (let j = 0; j < n; j++) {
+          dot += v[j] * vMatrix[j * k + prevIdx];
+        }
+        for (let j = 0; j < n; j++) {
+          v[j] -= dot * vMatrix[j * k + prevIdx];
+        }
+      }
+
+      let vNorm = Math.sqrt(v.reduce((acc, x) => acc + x * x, 0));
+      if (vNorm > 1e-10) {
+        for (let j = 0; j < n; j++) v[j] /= vNorm;
+      }
+
+      // Power iteration with convergence check
+      const MAX_ITER = 30;
+      const CONV_TOL = 1e-8;
+      let eigenvalue = 0;
+      let converged = false;
+
+      for (let iter = 0; iter < MAX_ITER && !converged; iter++) {
+        // v_new = ATA * v
+        const vNew = new Float64Array(n);
+        for (let i = 0; i < n; i++) {
+          let sum = 0;
+          for (let j = 0; j < n; j++) {
+            sum += ataWork[i * n + j] * v[j];
+          }
+          vNew[i] = sum;
+        }
+
+        // Normalize
+        vNorm = Math.sqrt(vNew.reduce((acc, x) => acc + x * x, 0));
+        eigenvalue = vNorm;
+
+        // Check convergence
+        let diff = 0;
+        for (let j = 0; j < n; j++) {
+          const vNewNorm = vNorm > 1e-10 ? vNew[j] / vNorm : 0;
+          diff += (vNewNorm - v[j]) ** 2;
+        }
+        converged = Math.sqrt(diff) < CONV_TOL;
+
+        // Update v
+        if (vNorm > 1e-10) {
+          for (let j = 0; j < n; j++) v[j] = vNew[j] / vNorm;
+        }
+
+        // Re-orthogonalize against previous eigenvectors
+        for (let prevIdx = 0; prevIdx < svIdx; prevIdx++) {
+          let dot = 0;
+          for (let j = 0; j < n; j++) {
+            dot += v[j] * vMatrix[j * k + prevIdx];
+          }
+          for (let j = 0; j < n; j++) {
+            v[j] -= dot * vMatrix[j * k + prevIdx];
+          }
+        }
+        // Re-normalize
+        vNorm = Math.sqrt(v.reduce((acc, x) => acc + x * x, 0));
+        if (vNorm > 1e-10) {
+          for (let j = 0; j < n; j++) v[j] /= vNorm;
+        }
+      }
+
+      // Store singular value and V column
+      singularValues[svIdx] = Math.sqrt(Math.abs(eigenvalue));
+      for (let j = 0; j < n; j++) {
+        vMatrix[j * k + svIdx] = v[j];
+      }
+
+      // Deflate
+      for (let row = 0; row < n; row++) {
+        for (let col = 0; col < n; col++) {
+          ataWork[row * n + col] -= eigenvalue * v[row] * v[col];
+        }
+      }
     }
 
-    // Sort singular values descending
+    // Sort descending
     const indices = Array.from({ length: k }, (_, i) => i);
-    indices.sort((a, b) => s.data[b] - s.data[a]);
+    indices.sort((a, b) => singularValues[b] - singularValues[a]);
+
     const sortedS = new Float64Array(k);
+    const sortedV = new Float64Array(n * k);
     for (let i = 0; i < k; i++) {
-      sortedS[i] = s.data[indices[i]];
+      sortedS[i] = singularValues[indices[i]];
+      for (let j = 0; j < n; j++) {
+        sortedV[j * k + i] = vMatrix[j * k + indices[i]];
+      }
+    }
+
+    // Compute U = A * V * Σ^(-1)
+    const vArr = this.createArray(sortedV, [n, k]);
+    const av = this.matmul(arr, vArr);
+    const avData = av.data;
+
+    const uData = new Float64Array(m * k);
+    for (let i = 0; i < m; i++) {
+      for (let j = 0; j < k; j++) {
+        const sigma = sortedS[j];
+        uData[i * k + j] = sigma > 1e-10 ? avData[i * k + j] / sigma : 0;
+      }
+    }
+
+    // Transpose V to get V^T
+    const vtData = new Float64Array(k * n);
+    for (let i = 0; i < k; i++) {
+      for (let j = 0; j < n; j++) {
+        vtData[i * n + j] = sortedV[j * k + i];
+      }
     }
 
     return {
-      u,
+      u: this.createArray(uData, [m, k]),
       s: this.createArray(sortedS, [k]),
-      vt,
+      vt: this.createArray(vtData, [k, n]),
     };
   }
 
@@ -7141,6 +8027,32 @@ export class WebGPUBackend implements Backend {
     return new WebGPUTensor(outputBuffer, [outM, outN], this.device);
   }
 
+  /**
+   * Condition number using GPU-accelerated SVD (async)
+   */
+  async condAsync(arr: IFaceNDArray, _p: number | 'fro' = 2): Promise<number> {
+    if (arr.shape.length !== 2) {
+      throw new Error('cond requires a 2D matrix');
+    }
+    // Compute condition number using GPU SVD
+    const { s } = await this.svdAsync(arr);
+    let sData: Float64Array;
+    if (s instanceof WebGPUNDArray) {
+      sData = await s.getData();
+    } else {
+      sData = s.data;
+    }
+    const sMax = Math.max(...sData);
+    const sMin = Math.min(...Array.from(sData).filter(v => v > 0));
+    if (sMin === 0 || sData.length === 0) {
+      return Infinity;
+    }
+    return sMax / sMin;
+  }
+
+  /**
+   * Sync condition number using CPU SVD
+   */
   cond(arr: IFaceNDArray, _p: number | 'fro' = 2): number {
     if (arr.shape.length !== 2) {
       throw new Error('cond requires a 2D matrix');
