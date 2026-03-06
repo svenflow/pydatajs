@@ -226,6 +226,91 @@ impl NDArray {
         CpuBackend::std_ddof(&self.inner, ddof)
     }
 
+    // ============ NaN-aware Stats ============
+
+    /// Sum ignoring NaN values
+    #[wasm_bindgen(js_name = nansum)]
+    pub fn nansum(&self) -> f64 {
+        CpuBackend::nansum(&self.inner)
+    }
+
+    /// Mean ignoring NaN values
+    #[wasm_bindgen(js_name = nanmean)]
+    pub fn nanmean(&self) -> f64 {
+        CpuBackend::nanmean(&self.inner)
+    }
+
+    /// Variance ignoring NaN values
+    #[wasm_bindgen(js_name = nanvar)]
+    pub fn nanvar(&self, ddof: usize) -> f64 {
+        CpuBackend::nanvar(&self.inner, ddof)
+    }
+
+    /// Standard deviation ignoring NaN values
+    #[wasm_bindgen(js_name = nanstd)]
+    pub fn nanstd(&self, ddof: usize) -> f64 {
+        CpuBackend::nanstd(&self.inner, ddof)
+    }
+
+    /// Minimum ignoring NaN values
+    #[wasm_bindgen(js_name = nanmin)]
+    pub fn nanmin(&self) -> f64 {
+        CpuBackend::nanmin(&self.inner)
+    }
+
+    /// Maximum ignoring NaN values
+    #[wasm_bindgen(js_name = nanmax)]
+    pub fn nanmax(&self) -> f64 {
+        CpuBackend::nanmax(&self.inner)
+    }
+
+    /// Index of minimum value, ignoring NaN
+    #[wasm_bindgen(js_name = nanargmin)]
+    pub fn nanargmin(&self) -> usize {
+        CpuBackend::nanargmin(&self.inner).unwrap_or(0)
+    }
+
+    /// Index of maximum value, ignoring NaN
+    #[wasm_bindgen(js_name = nanargmax)]
+    pub fn nanargmax(&self) -> usize {
+        CpuBackend::nanargmax(&self.inner).unwrap_or(0)
+    }
+
+    /// Product ignoring NaN values
+    #[wasm_bindgen(js_name = nanprod)]
+    pub fn nanprod(&self) -> f64 {
+        CpuBackend::nanprod(&self.inner)
+    }
+
+    // ============ Order Statistics ============
+
+    /// Median value
+    pub fn median(&self) -> f64 {
+        CpuBackend::median(&self.inner).unwrap_or(f64::NAN)
+    }
+
+    /// Percentile (q in range 0-100)
+    pub fn percentile(&self, q: f64) -> f64 {
+        CpuBackend::percentile(&self.inner, q).unwrap_or(f64::NAN)
+    }
+
+    /// Quantile (q in range 0-1)
+    pub fn quantile(&self, q: f64) -> f64 {
+        CpuBackend::quantile(&self.inner, q).unwrap_or(f64::NAN)
+    }
+
+    /// Median ignoring NaN values
+    #[wasm_bindgen(js_name = nanmedian)]
+    pub fn nanmedian(&self) -> f64 {
+        CpuBackend::nanmedian(&self.inner).unwrap_or(f64::NAN)
+    }
+
+    /// Percentile ignoring NaN values (q in range 0-100)
+    #[wasm_bindgen(js_name = nanpercentile)]
+    pub fn nanpercentile(&self, q: f64) -> f64 {
+        CpuBackend::nanpercentile(&self.inner, q).unwrap_or(f64::NAN)
+    }
+
     // Reshape
     pub fn reshape(&self, shape: Vec<usize>) -> Result<NDArray, JsValue> {
         CpuBackend::reshape(&self.inner, shape)
@@ -2214,7 +2299,7 @@ pub fn matmul_f32_prepacked(a: &Float32Array, packed_b: &Float32Array, m: usize,
 pub fn matmul_xnnpack(a: &Float32Array, b: &Float32Array, packed_b: &Float32Array, m: usize, n: usize, k: usize) -> Float32Array {
     let a_vec = a.to_vec();
     let b_vec = b.to_vec();
-    let pb_vec = packed_b.to_vec();
+    let _pb_vec = packed_b.to_vec();
     let mut c_vec = vec![0.0f32; m * n];
 
     #[cfg(target_arch = "wasm32")]
@@ -2308,12 +2393,12 @@ pub fn matmul_f32_optimized(a: &Float32Array, b: &Float32Array, m: usize, n: usi
 /// const result = matmulWithPackedB(input, packedB, m, n, k);
 /// ```
 #[wasm_bindgen(js_name = packBForGemm)]
-pub fn pack_b_for_gemm(b: &Float32Array, k: usize, n: usize) -> Float32Array {
+pub fn pack_b_for_gemm(b: &Float32Array, _k: usize, _n: usize) -> Float32Array {
     let b_vec = b.to_vec();
 
     #[cfg(target_arch = "wasm32")]
     {
-        let packed = simd_gemm::pack_b_for_gemm(&b_vec, k, n);
+        let packed = simd_gemm::pack_b_for_gemm(&b_vec, _k, _n);
         Float32Array::from(packed.as_slice())
     }
 
@@ -2649,7 +2734,7 @@ pub fn matmul_f32_futex(a: &Float32Array, b: &Float32Array, m: usize, n: usize, 
 pub fn matmul_xnnpack_blocked(a: &Float32Array, b: &Float32Array, packed_b: &Float32Array, m: usize, n: usize, k: usize) -> Float32Array {
     let a_vec = a.to_vec();
     let b_vec = b.to_vec();
-    let pb_vec = packed_b.to_vec();
+    let _pb_vec = packed_b.to_vec();
     let mut c_vec = vec![0.0f32; m * n];
 
     #[cfg(target_arch = "wasm32")]
@@ -2740,7 +2825,7 @@ impl NDArray {
         let batch_size: usize = shape[..ndim - norm_ndim].iter().product();
 
         let flat = data_contiguous.view()
-            .into_shape((batch_size, norm_size))
+            .into_shape_with_order((batch_size, norm_size))
             .map_err(|e| JsValue::from_str(&format!("reshape failed: {}", e)))?;
 
         let mut flat_result = ndarray::Array2::<f64>::zeros((batch_size, norm_size));
@@ -2810,7 +2895,7 @@ impl NDArray {
         }
 
         // Reshape back to original shape
-        let result_arr = flat_result.into_shape(ndarray::IxDyn(&shape))
+        let result_arr = flat_result.into_shape_with_order(ndarray::IxDyn(&shape))
             .map_err(|e| JsValue::from_str(&format!("reshape back failed: {}", e)))?;
 
         Ok(NDArray::new(rumpy_cpu::CpuArray::from_ndarray(result_arr.to_owned())))
@@ -2845,7 +2930,7 @@ impl NDArray {
         // Ensure contiguous layout before reshaping
         let data_contiguous = data.as_standard_layout();
         let flat = data_contiguous.view()
-            .into_shape((batch_size, last_dim))
+            .into_shape_with_order((batch_size, last_dim))
             .map_err(|e| JsValue::from_str(&format!("reshape failed: {}", e)))?;
 
         let g_slice = gamma.inner.as_f64_slice();
@@ -2869,7 +2954,7 @@ impl NDArray {
             }
         }
 
-        let result_arr = result.into_shape(ndarray::IxDyn(&shape))
+        let result_arr = result.into_shape_with_order(ndarray::IxDyn(&shape))
             .map_err(|e| JsValue::from_str(&format!("reshape back failed: {}", e)))?;
 
         Ok(NDArray::new(rumpy_cpu::CpuArray::from_ndarray(result_arr.to_owned())))
@@ -3267,7 +3352,7 @@ impl NDArray {
             let batch_size: usize = shape[..ndim - 2].iter().product();
 
             let flat = result.as_standard_layout().into_owned()
-                .into_shape((batch_size, nrows, ncols))
+                .into_shape_with_order((batch_size, nrows, ncols))
                 .map_err(|e| JsValue::from_str(&format!("reshape failed: {}", e)))?;
 
             let mut flat_result = flat;
@@ -3282,7 +3367,7 @@ impl NDArray {
                 }
             }
 
-            let shaped = flat_result.into_shape(ndarray::IxDyn(&shape))
+            let shaped = flat_result.into_shape_with_order(ndarray::IxDyn(&shape))
                 .map_err(|e| JsValue::from_str(&format!("reshape back failed: {}", e)))?;
             result = shaped;
         }
@@ -3332,7 +3417,7 @@ impl NDArray {
             let batch_size: usize = shape[..ndim - 2].iter().product();
 
             let flat = result.as_standard_layout().into_owned()
-                .into_shape((batch_size, nrows, ncols))
+                .into_shape_with_order((batch_size, nrows, ncols))
                 .map_err(|e| JsValue::from_str(&format!("reshape failed: {}", e)))?;
 
             let mut flat_result = flat;
@@ -3347,7 +3432,7 @@ impl NDArray {
                 }
             }
 
-            let shaped = flat_result.into_shape(ndarray::IxDyn(&shape))
+            let shaped = flat_result.into_shape_with_order(ndarray::IxDyn(&shape))
                 .map_err(|e| JsValue::from_str(&format!("reshape back failed: {}", e)))?;
             result = shaped;
         }
@@ -3653,7 +3738,7 @@ impl NDArray {
 
         let data_contiguous = data.as_standard_layout();
         let flat = data_contiguous.view()
-            .into_shape((batch_size, last_dim))
+            .into_shape_with_order((batch_size, last_dim))
             .map_err(|e| JsValue::from_str(&format!("reshape failed: {}", e)))?;
 
         let mut result = ndarray::Array2::<f64>::zeros((batch_size, num_samples));
@@ -3701,7 +3786,7 @@ impl NDArray {
             }
         }
 
-        let result_shaped = result.into_shape(ndarray::IxDyn(&out_shape))
+        let result_shaped = result.into_shape_with_order(ndarray::IxDyn(&out_shape))
             .map_err(|e| JsValue::from_str(&format!("reshape result failed: {}", e)))?;
 
         Ok(NDArray::new(rumpy_cpu::CpuArray::from_ndarray(result_shaped)))
@@ -3736,7 +3821,7 @@ impl NDArray {
         // Ensure contiguous data
         let data_contiguous = data.as_standard_layout();
         let reshaped = data_contiguous.view()
-            .into_shape(ndarray::IxDyn(&padded_shape))
+            .into_shape_with_order(ndarray::IxDyn(&padded_shape))
             .map_err(|e| JsValue::from_str(&format!("reshape failed: {}", e)))?;
 
         // Build result by broadcasting and assignment
@@ -4653,7 +4738,7 @@ impl NDArray {
         // Roll by concatenating two slices: [axis_len-shift:] + [:axis_len-shift]
         let split_point = (axis_len - shift_norm) as usize;
 
-        for (dst_idx, src_idx) in (0..shape[axis]).enumerate() {
+        for dst_idx in 0..shape[axis] {
             let actual_src = if dst_idx < shift_norm as usize {
                 split_point + dst_idx
             } else {
@@ -5027,7 +5112,7 @@ fn einsum_binary(input_a: &str, input_b: &str, output: &str, a: &NDArray, b: &ND
     let b_shape = b_data.shape();
 
     // Handle ellipsis
-    let max_dims = a_shape.len().max(b_shape.len());
+    let _max_dims = a_shape.len().max(b_shape.len());
     let (input_a_exp, output_exp_a) = expand_ellipsis(input_a, output, a_shape.len())?;
     let (input_b_exp, output_exp_b) = expand_ellipsis(input_b, output, b_shape.len())?;
     let output_exp = if !output_exp_a.is_empty() { output_exp_a } else { output_exp_b };

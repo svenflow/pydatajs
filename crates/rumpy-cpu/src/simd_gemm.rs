@@ -479,12 +479,15 @@ pub fn pack_b_xnnpack(b: &[f32], packed: &mut [f32], k: usize, n: usize) {
 // We want the working set (A panel + B panel + C panel) to fit in L2
 
 /// Block size for K dimension (should fit in L1 with micro-panel)
+#[allow(dead_code)]
 const KC: usize = 256;
 
 /// Block size for M dimension (should fit in L2 with packed B)
+#[allow(dead_code)]
 const MC: usize = 128;
 
 /// Block size for N dimension
+#[allow(dead_code)]
 const NC: usize = 256;
 
 /// Cache-blocked 6x8 GEMM with mul+add (not FMA)
@@ -888,6 +891,7 @@ pub unsafe fn matmul_simd_f32_xnnpack_blocked(
 /// Layout: for each panel j, store all k rows contiguously
 /// packed_b[panel_idx * k * NR + kk * NR + col_in_panel] = b[kk * n + j + col_in_panel]
 #[inline]
+#[allow(dead_code)]
 fn pack_b_f32(b: &[f32], packed: &mut [f32], k: usize, n: usize) {
     const NR: usize = 8;
     let n_panels = n / NR;
@@ -2592,10 +2596,15 @@ mod tests {
 // 5. B matrix packing for contiguous access
 
 /// Cache blocking constants (tuned for typical L1=32KB, L2=256KB)
+#[allow(dead_code)]
 const OPT_KC: usize = 256;  // K-dimension block (depth of dot product)
+#[allow(dead_code)]
 const OPT_MC: usize = 72;   // M-dimension block (multiple of MR=6)
+#[allow(dead_code)]
 const OPT_NC: usize = 128;  // N-dimension block (multiple of NR=8)
+#[allow(dead_code)]
 const OPT_MR: usize = 6;    // Micro-kernel rows
+#[allow(dead_code)]
 const OPT_NR: usize = 8;    // Micro-kernel cols
 
 /// Pack B matrix panel into contiguous format for optimal SIMD access.

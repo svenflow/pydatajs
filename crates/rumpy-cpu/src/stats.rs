@@ -373,7 +373,7 @@ impl StatsOps for CpuBackend {
         }
 
         let shape = data.shape();
-        let axis_len = shape[axis];
+        let _axis_len = shape[axis];
         let new_shape: Vec<usize> = shape
             .iter()
             .enumerate()
@@ -846,6 +846,92 @@ impl StatsOps for CpuBackend {
 
     fn median(arr: &CpuArray) -> Result<f64> {
         Self::quantile(arr, 0.5)
+    }
+}
+
+// Additional NaN-aware stats methods (not part of trait but used by WASM bindings)
+impl CpuBackend {
+    /// Index of minimum value, ignoring NaN
+    pub fn nanargmin(arr: &CpuArray) -> Result<usize> {
+        let data = arr.as_ndarray();
+        let mut min_val = f64::INFINITY;
+        let mut min_idx = None;
+        for (i, &x) in data.iter().enumerate() {
+            if !x.is_nan() && x < min_val {
+                min_val = x;
+                min_idx = Some(i);
+            }
+        }
+        min_idx.ok_or_else(|| RumpyError::EmptyArrayReduction("nanargmin"))
+    }
+
+    /// Index of maximum value, ignoring NaN
+    pub fn nanargmax(arr: &CpuArray) -> Result<usize> {
+        let data = arr.as_ndarray();
+        let mut max_val = f64::NEG_INFINITY;
+        let mut max_idx = None;
+        for (i, &x) in data.iter().enumerate() {
+            if !x.is_nan() && x > max_val {
+                max_val = x;
+                max_idx = Some(i);
+            }
+        }
+        max_idx.ok_or_else(|| RumpyError::EmptyArrayReduction("nanargmax"))
+    }
+
+    /// Product ignoring NaN values
+    pub fn nanprod(arr: &CpuArray) -> f64 {
+        arr.as_ndarray()
+            .iter()
+            .filter(|x| !x.is_nan())
+            .product()
+    }
+
+    /// Median ignoring NaN values
+    pub fn nanmedian(arr: &CpuArray) -> Result<f64> {
+        let mut filtered: Vec<f64> = arr.as_ndarray()
+            .iter()
+            .filter(|x| !x.is_nan())
+            .cloned()
+            .collect();
+        if filtered.is_empty() {
+            return Err(RumpyError::EmptyArrayReduction("nanmedian"));
+        }
+        filtered.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+        let n = filtered.len();
+        if n % 2 == 0 {
+            Ok((filtered[n / 2 - 1] + filtered[n / 2]) / 2.0)
+        } else {
+            Ok(filtered[n / 2])
+        }
+    }
+
+    /// Percentile ignoring NaN values (q in range 0-100)
+    pub fn nanpercentile(arr: &CpuArray, q: f64) -> Result<f64> {
+        if !(0.0..=100.0).contains(&q) {
+            return Err(RumpyError::InvalidArgument(
+                format!("Percentile must be in range [0, 100], got {}", q)
+            ));
+        }
+        let mut filtered: Vec<f64> = arr.as_ndarray()
+            .iter()
+            .filter(|x| !x.is_nan())
+            .cloned()
+            .collect();
+        if filtered.is_empty() {
+            return Err(RumpyError::EmptyArrayReduction("nanpercentile"));
+        }
+        filtered.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+        let n = filtered.len();
+        let idx = (q / 100.0) * (n - 1) as f64;
+        let lower = idx.floor() as usize;
+        let upper = idx.ceil() as usize;
+        if lower == upper {
+            Ok(filtered[lower])
+        } else {
+            let frac = idx - lower as f64;
+            Ok(filtered[lower] * (1.0 - frac) + filtered[upper] * frac)
+        }
     }
 }
 

@@ -1,7 +1,9 @@
 //! Linear algebra operations for CPU backend using faer
 //! On WASM targets with simd128, uses hand-optimized SIMD GEMM kernels.
 
-use crate::{simd_gemm, CpuArray, CpuBackend};
+#[cfg(target_arch = "wasm32")]
+use crate::simd_gemm;
+use crate::{CpuArray, CpuBackend};
 use faer::Mat;
 use ndarray::{ArrayD, IxDyn};
 use rumpy_core::{ops::LinalgOps, Array, Result, RumpyError};
@@ -59,7 +61,10 @@ impl LinalgOps for CpuBackend {
             ));
         }
 
+        #[cfg(target_arch = "wasm32")]
         let k = k1;
+        #[cfg(not(target_arch = "wasm32"))]
+        let _ = (m, n, k1);
 
         // Use SIMD-optimized GEMM on WASM (simd128 is enabled via .cargo/config.toml rustflags)
         // Fall back to faer for native targets

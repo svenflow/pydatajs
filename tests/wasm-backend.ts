@@ -2821,133 +2821,65 @@ export class WasmBackend implements Backend {
   }
 
   // ============ NaN-aware Stats ============
+  // These delegate to Rust WASM implementations
 
   nansum(arr: IFaceNDArray): number {
-    let sum = 0;
-    for (let i = 0; i < arr.data.length; i++) {
-      if (!Number.isNaN(arr.data[i])) sum += arr.data[i];
-    }
-    return sum;
+    return this.unwrap(arr).nansum();
   }
 
   nanmean(arr: IFaceNDArray): number {
-    let sum = 0, count = 0;
-    for (let i = 0; i < arr.data.length; i++) {
-      if (!Number.isNaN(arr.data[i])) { sum += arr.data[i]; count++; }
-    }
-    return count > 0 ? sum / count : NaN;
+    return this.unwrap(arr).nanmean();
   }
 
   nanvar(arr: IFaceNDArray, ddof: number = 0): number {
-    const mean = this.nanmean(arr);
-    if (Number.isNaN(mean)) return NaN;
-    let sumSq = 0, count = 0;
-    for (let i = 0; i < arr.data.length; i++) {
-      if (!Number.isNaN(arr.data[i])) {
-        const diff = arr.data[i] - mean;
-        sumSq += diff * diff;
-        count++;
-      }
-    }
-    return count > ddof ? sumSq / (count - ddof) : NaN;
+    return this.unwrap(arr).nanvar(ddof);
   }
 
   nanstd(arr: IFaceNDArray, ddof: number = 0): number {
-    return Math.sqrt(this.nanvar(arr, ddof));
+    return this.unwrap(arr).nanstd(ddof);
   }
 
   nanmin(arr: IFaceNDArray): number {
-    let min = Infinity;
-    for (let i = 0; i < arr.data.length; i++) {
-      if (!Number.isNaN(arr.data[i]) && arr.data[i] < min) min = arr.data[i];
-    }
-    return min === Infinity ? NaN : min;
+    return this.unwrap(arr).nanmin();
   }
 
   nanmax(arr: IFaceNDArray): number {
-    let max = -Infinity;
-    for (let i = 0; i < arr.data.length; i++) {
-      if (!Number.isNaN(arr.data[i]) && arr.data[i] > max) max = arr.data[i];
-    }
-    return max === -Infinity ? NaN : max;
+    return this.unwrap(arr).nanmax();
   }
 
   nanargmin(arr: IFaceNDArray): number {
-    let minIdx = -1, minVal = Infinity;
-    for (let i = 0; i < arr.data.length; i++) {
-      if (!Number.isNaN(arr.data[i]) && arr.data[i] < minVal) {
-        minVal = arr.data[i]; minIdx = i;
-      }
-    }
-    return minIdx;
+    return this.unwrap(arr).nanargmin();
   }
 
   nanargmax(arr: IFaceNDArray): number {
-    let maxIdx = -1, maxVal = -Infinity;
-    for (let i = 0; i < arr.data.length; i++) {
-      if (!Number.isNaN(arr.data[i]) && arr.data[i] > maxVal) {
-        maxVal = arr.data[i]; maxIdx = i;
-      }
-    }
-    return maxIdx;
+    return this.unwrap(arr).nanargmax();
   }
 
   nanprod(arr: IFaceNDArray): number {
-    let prod = 1;
-    for (let i = 0; i < arr.data.length; i++) {
-      if (!Number.isNaN(arr.data[i])) prod *= arr.data[i];
-    }
-    return prod;
+    return this.unwrap(arr).nanprod();
   }
 
   // ============ Order Statistics ============
+  // These delegate to Rust WASM implementations
 
   median(arr: IFaceNDArray): number {
-    const sorted = Array.from(arr.data).sort((a, b) => a - b);
-    const mid = Math.floor(sorted.length / 2);
-    if (sorted.length === 0) return NaN;
-    if (sorted.length % 2 === 0) {
-      return (sorted[mid - 1] + sorted[mid]) / 2;
-    }
-    return sorted[mid];
+    return this.unwrap(arr).median();
   }
 
   percentile(arr: IFaceNDArray, q: number): number {
-    if (arr.data.length === 0) return NaN;
-    const sorted = Array.from(arr.data).sort((a, b) => a - b);
-    const idx = (q / 100) * (sorted.length - 1);
-    const lower = Math.floor(idx);
-    const upper = Math.ceil(idx);
-    if (lower === upper) return sorted[lower];
-    const frac = idx - lower;
-    return sorted[lower] * (1 - frac) + sorted[upper] * frac;
+    return this.unwrap(arr).percentile(q);
   }
 
   quantile(arr: IFaceNDArray, q: number): number {
-    return this.percentile(arr, q * 100);
+    return this.unwrap(arr).quantile(q);
   }
 
   nanmedian(arr: IFaceNDArray): number {
-    const nonNaN = Array.from(arr.data).filter(x => !Number.isNaN(x));
-    if (nonNaN.length === 0) return NaN;
-    const sorted = nonNaN.sort((a, b) => a - b);
-    const mid = Math.floor(sorted.length / 2);
-    if (sorted.length % 2 === 0) {
-      return (sorted[mid - 1] + sorted[mid]) / 2;
-    }
-    return sorted[mid];
+    return this.unwrap(arr).nanmedian();
   }
 
   nanpercentile(arr: IFaceNDArray, q: number): number {
-    const nonNaN = Array.from(arr.data).filter(x => !Number.isNaN(x));
-    if (nonNaN.length === 0) return NaN;
-    const sorted = nonNaN.sort((a, b) => a - b);
-    const idx = (q / 100) * (sorted.length - 1);
-    const lower = Math.floor(idx);
-    const upper = Math.ceil(idx);
-    if (lower === upper) return sorted[lower];
-    const frac = idx - lower;
-    return sorted[lower] * (1 - frac) + sorted[upper] * frac;
+    return this.unwrap(arr).nanpercentile(q);
   }
 
   // ============ Histogram ============
