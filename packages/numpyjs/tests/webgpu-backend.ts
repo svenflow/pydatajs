@@ -5253,9 +5253,10 @@ const autotuneCache = new Map<string, string>();
 // The 8×8 kernel's extra register pressure causes spills that negate its
 // higher compute-per-thread advantage.
 const PRESET_CONFIGS: Record<string, string> = {
+  '8192x8192x8192': 'TFJS-BCACHE',
   '4096x4096x4096': 'TFJS-BCACHE',
   '2048x2048x2048': 'TFJS-BCACHE',
-  '1024x1024x1024': 'TFJS-BCACHE',
+  '1024x1024x1024': '8X8-MEGA-FIT', // Autotuned: wins by slim margin over BCACHE at 1024
   '512x512x512': 'BCACHE-FIT', // FIT wins at 512 (no bounds checking helps)
   '256x256x256': 'BCACHE-FIT',
   '128x128x128': 'BCACHE-FIT',
@@ -14032,7 +14033,20 @@ export async function initWebGPUBackend(): Promise<void> {
   if (!navigator.gpu) throw new Error('WebGPU not supported');
   const adapter = await navigator.gpu.requestAdapter();
   if (!adapter) throw new Error('No WebGPU adapter found');
-  gpuDevice = await adapter.requestDevice();
+
+  // Request max limits from the adapter so large matrices (8192+) work.
+  // Default limits cap maxStorageBufferBindingSize at 128MB, but 8192×8192 f32 = 256MB.
+  const adapterLimits = adapter.limits;
+  gpuDevice = await adapter.requestDevice({
+    requiredLimits: {
+      maxBufferSize: adapterLimits.maxBufferSize,
+      maxStorageBufferBindingSize: adapterLimits.maxStorageBufferBindingSize,
+      maxComputeWorkgroupsPerDimension: adapterLimits.maxComputeWorkgroupsPerDimension,
+      maxComputeWorkgroupStorageSize: adapterLimits.maxComputeWorkgroupStorageSize,
+      maxComputeInvocationsPerWorkgroup: adapterLimits.maxComputeInvocationsPerWorkgroup,
+      maxStorageBuffersPerShaderStage: adapterLimits.maxStorageBuffersPerShaderStage,
+    },
+  });
 }
 
 export function createWebGPUBackend(): Backend {

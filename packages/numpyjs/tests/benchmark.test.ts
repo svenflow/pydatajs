@@ -16,7 +16,7 @@ import '@tensorflow/tfjs-backend-webgpu';
 // Benchmark configuration
 const WARMUP_RUNS = 3;
 const BENCHMARK_RUNS = 10;
-const MATRIX_SIZES = [512, 1024, 2048, 4096];
+const MATRIX_SIZES = [64, 128, 256, 512, 1024, 2048, 4096, 8192];
 
 interface BenchmarkResult {
   backend: string;
