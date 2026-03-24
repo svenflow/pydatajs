@@ -1,0 +1,49 @@
+{
+  "name": "numpyjs",
+  "version": "1.0.0",
+  "description": "NumPy-compatible array library for JavaScript - pure JS and WebGPU backends",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest run",
+    "lint": "eslint src --ext .ts",
+    "typecheck": "tsc --noEmit",
+    "clean": "rm -rf dist"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/svenflow/pydatajs.git",
+    "directory": "packages/numpyjs"
+  },
+  "keywords": [
+    "numpy",
+    "ndarray",
+    "tensor",
+    "matrix",
+    "linear-algebra",
+    "scientific-computing",
+    "webgpu"
+  ],
+  "author": "Sven",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/svenflow/pydatajs/issues"
+  },
+  "homepage": "https://github.com/svenflow/pydatajs/tree/main/packages/numpyjs#readme",
+  "devDependencies": {
+    "typescript": "^5.4.0",
+    "vitest": "^1.4.0"
+  }
+}
