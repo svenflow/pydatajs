@@ -1,7 +1,7 @@
 {
-  "name": "rumpy-ts-tests",
+  "name": "numpyjs-tests",
   "version": "1.0.0",
-  "description": "Parameterized test suite for rumpy-ts backends",
+  "description": "Parameterized test suite for numpyjs backends (JS + WebGPU)",
   "type": "module",
   "scripts": {
     "test": "bun vitest run",

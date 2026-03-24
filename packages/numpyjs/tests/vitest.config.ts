@@ -1,16 +1,12 @@
 import { defineConfig } from 'vitest/config';
 import { playwright } from '@vitest/browser-playwright';
-import wasm from 'vite-plugin-wasm';
 import topLevelAwait from 'vite-plugin-top-level-await';
 
 export default defineConfig({
-  plugins: [
-    wasm(),
-    topLevelAwait(),
-  ],
+  plugins: [topLevelAwait()],
   server: {
     headers: {
-      // Required for SharedArrayBuffer (needed by wasm-bindgen-rayon)
+      // Required for SharedArrayBuffer (needed for WebGPU multi-threaded access)
       'Cross-Origin-Opener-Policy': 'same-origin',
       'Cross-Origin-Embedder-Policy': 'require-corp',
     },
@@ -18,9 +14,9 @@ export default defineConfig({
   test: {
     globals: true,
     include: ['index.test.ts', 'benchmark.test.ts'],
-    fileParallelism: false,  // Sequential test files to avoid WASM/WebGPU conflicts
-    testTimeout: 120000,  // 2 minute timeout for slow GPU tests
-    // Use playwright browser for WASM tests (full SIMD + SharedArrayBuffer support)
+    fileParallelism: false, // Sequential test files to avoid WebGPU conflicts
+    testTimeout: 120000, // 2 minute timeout for slow GPU tests
+    // Use playwright browser for WebGPU tests
     browser: {
       enabled: true,
       provider: playwright({
@@ -34,9 +30,7 @@ export default defineConfig({
           ],
         },
       }),
-      instances: [
-        { browser: 'chromium' },
-      ],
+      instances: [{ browser: 'chromium' }],
     },
   },
 });

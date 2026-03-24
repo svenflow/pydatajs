@@ -3,7 +3,7 @@
  *
  * This implements all Backend operations in pure JS, serving as:
  * 1. A reference implementation for testing
- * 2. A fallback when WASM is not available
+ * 2. A fallback when WebGPU is not available
  * 3. A baseline for performance comparisons
  */
 
@@ -199,65 +199,104 @@ export class JsBackend implements Backend {
   }
 
   neg(arr: NDArray): NDArray {
-    return new JsNDArray(arr.data.map((x) => -x), arr.shape);
+    return new JsNDArray(
+      arr.data.map(x => -x),
+      arr.shape
+    );
   }
 
   reciprocal(arr: NDArray): NDArray {
-    return new JsNDArray(arr.data.map((x) => 1 / x), arr.shape);
+    return new JsNDArray(
+      arr.data.map(x => 1 / x),
+      arr.shape
+    );
   }
 
   square(arr: NDArray): NDArray {
-    return new JsNDArray(arr.data.map((x) => x * x), arr.shape);
+    return new JsNDArray(
+      arr.data.map(x => x * x),
+      arr.shape
+    );
   }
 
   // ============ Math - Unary (Extended) ============
 
   arcsinh(arr: NDArray): NDArray {
-    return new JsNDArray(arr.data.map((x) => Math.asinh(x)), arr.shape);
+    return new JsNDArray(
+      arr.data.map(x => Math.asinh(x)),
+      arr.shape
+    );
   }
 
   arccosh(arr: NDArray): NDArray {
-    return new JsNDArray(arr.data.map((x) => Math.acosh(x)), arr.shape);
+    return new JsNDArray(
+      arr.data.map(x => Math.acosh(x)),
+      arr.shape
+    );
   }
 
   arctanh(arr: NDArray): NDArray {
-    return new JsNDArray(arr.data.map((x) => Math.atanh(x)), arr.shape);
+    return new JsNDArray(
+      arr.data.map(x => Math.atanh(x)),
+      arr.shape
+    );
   }
 
   expm1(arr: NDArray): NDArray {
-    return new JsNDArray(arr.data.map((x) => Math.expm1(x)), arr.shape);
+    return new JsNDArray(
+      arr.data.map(x => Math.expm1(x)),
+      arr.shape
+    );
   }
 
   log1p(arr: NDArray): NDArray {
-    return new JsNDArray(arr.data.map((x) => Math.log1p(x)), arr.shape);
+    return new JsNDArray(
+      arr.data.map(x => Math.log1p(x)),
+      arr.shape
+    );
   }
 
   trunc(arr: NDArray): NDArray {
-    return new JsNDArray(arr.data.map((x) => Math.trunc(x)), arr.shape);
+    return new JsNDArray(
+      arr.data.map(x => Math.trunc(x)),
+      arr.shape
+    );
   }
 
   sinc(arr: NDArray): NDArray {
-    return new JsNDArray(arr.data.map((x) => {
-      if (x === 0) return 1;
-      const px = Math.PI * x;
-      return Math.sin(px) / px;
-    }), arr.shape);
+    return new JsNDArray(
+      arr.data.map(x => {
+        if (x === 0) return 1;
+        const px = Math.PI * x;
+        return Math.sin(px) / px;
+      }),
+      arr.shape
+    );
   }
 
   deg2rad(arr: NDArray): NDArray {
-    return new JsNDArray(arr.data.map((x) => x * Math.PI / 180), arr.shape);
+    return new JsNDArray(
+      arr.data.map(x => (x * Math.PI) / 180),
+      arr.shape
+    );
   }
 
   rad2deg(arr: NDArray): NDArray {
-    return new JsNDArray(arr.data.map((x) => x * 180 / Math.PI), arr.shape);
+    return new JsNDArray(
+      arr.data.map(x => (x * 180) / Math.PI),
+      arr.shape
+    );
   }
 
   heaviside(arr: NDArray, h0: number): NDArray {
-    return new JsNDArray(arr.data.map((x) => {
-      if (x < 0) return 0;
-      if (x === 0) return h0;
-      return 1;
-    }), arr.shape);
+    return new JsNDArray(
+      arr.data.map(x => {
+        if (x < 0) return 0;
+        if (x === 0) return h0;
+        return 1;
+      }),
+      arr.shape
+    );
   }
 
   fix(arr: NDArray): NDArray {
@@ -268,11 +307,14 @@ export class JsBackend implements Backend {
   signbit(arr: NDArray): NDArray {
     // Returns 1.0 if sign bit is set (negative or -0), 0.0 otherwise
     // NumPy: signbit(NaN) = False, signbit(-0) = True, signbit(-inf) = True
-    return new JsNDArray(arr.data.map((x) => {
-      if (Number.isNaN(x)) return 0;  // NumPy returns False for NaN
-      if (Object.is(x, -0)) return 1;  // -0 has sign bit set
-      return x < 0 ? 1 : 0;
-    }), arr.shape);
+    return new JsNDArray(
+      arr.data.map(x => {
+        if (Number.isNaN(x)) return 0; // NumPy returns False for NaN
+        if (Object.is(x, -0)) return 1; // -0 has sign bit set
+        return x < 0 ? 1 : 0;
+      }),
+      arr.shape
+    );
   }
 
   // ============ Math - Decomposition ============
@@ -511,15 +553,24 @@ export class JsBackend implements Backend {
   }
 
   isnan(arr: NDArray): NDArray {
-    return new JsNDArray(arr.data.map((x) => Number.isNaN(x) ? 1 : 0), arr.shape);
+    return new JsNDArray(
+      arr.data.map(x => (Number.isNaN(x) ? 1 : 0)),
+      arr.shape
+    );
   }
 
   isinf(arr: NDArray): NDArray {
-    return new JsNDArray(arr.data.map((x) => !Number.isFinite(x) && !Number.isNaN(x) ? 1 : 0), arr.shape);
+    return new JsNDArray(
+      arr.data.map(x => (!Number.isFinite(x) && !Number.isNaN(x) ? 1 : 0)),
+      arr.shape
+    );
   }
 
   isfinite(arr: NDArray): NDArray {
-    return new JsNDArray(arr.data.map((x) => Number.isFinite(x) ? 1 : 0), arr.shape);
+    return new JsNDArray(
+      arr.data.map(x => (Number.isFinite(x) ? 1 : 0)),
+      arr.shape
+    );
   }
 
   // ============ Set Operations ============
@@ -545,7 +596,10 @@ export class JsBackend implements Backend {
 
   isin(element: NDArray, testElements: NDArray): NDArray {
     const testSet = new Set(testElements.data);
-    return new JsNDArray(element.data.map(x => testSet.has(x) ? 1 : 0), element.shape);
+    return new JsNDArray(
+      element.data.map(x => (testSet.has(x) ? 1 : 0)),
+      element.shape
+    );
   }
 
   // ============ Array Manipulation (Extended) ============
@@ -566,7 +620,7 @@ export class JsBackend implements Backend {
     if (axis === undefined) {
       const flat = Array.from(this.flatten(arr).data);
       const indices = Array.isArray(index) ? index : [index];
-      const normalized = indices.map(i => i < 0 ? flat.length + i : i).sort((a, b) => b - a);
+      const normalized = indices.map(i => (i < 0 ? flat.length + i : i)).sort((a, b) => b - a);
       for (const i of normalized) {
         flat.splice(i, 1);
       }
@@ -719,7 +773,7 @@ export class JsBackend implements Backend {
     return new JsNDArray(result, outShape);
   }
 
-  cond(arr: NDArray, p: number | 'fro' = 2): number {
+  cond(arr: NDArray, _p: number | 'fro' = 2): number {
     if (arr.shape.length !== 2) {
       throw new Error('cond requires a 2D matrix');
     }
@@ -767,13 +821,16 @@ export class JsBackend implements Backend {
 
   polyval(p: NDArray, x: NDArray): NDArray {
     const coeffs = this.flatten(p).data;
-    return new JsNDArray(x.data.map(xi => {
-      let result = 0;
-      for (let i = 0; i < coeffs.length; i++) {
-        result = result * xi + coeffs[i];
-      }
-      return result;
-    }), x.shape);
+    return new JsNDArray(
+      x.data.map(xi => {
+        let result = 0;
+        for (let i = 0; i < coeffs.length; i++) {
+          result = result * xi + coeffs[i];
+        }
+        return result;
+      }),
+      x.shape
+    );
   }
 
   polyadd(a: NDArray, b: NDArray): NDArray {
@@ -962,7 +1019,8 @@ export class JsBackend implements Backend {
         // Wilkinson shift
         const d = (H[(size - 2) * n + (size - 2)] - H[(size - 1) * n + (size - 1)]) / 2;
         const bElem = H[(size - 1) * n + (size - 2)];
-        const shift = H[(size - 1) * n + (size - 1)] -
+        const shift =
+          H[(size - 1) * n + (size - 1)] -
           (bElem * bElem) / (d + Math.sign(d || 1) * Math.sqrt(d * d + bElem * bElem));
 
         // Apply shift
@@ -1021,22 +1079,26 @@ export class JsBackend implements Backend {
     const xpData = this.flatten(xp).data;
     const fpData = this.flatten(fp).data;
 
-    return new JsNDArray(x.data.map(xi => {
-      // Binary search for interval
-      if (xi <= xpData[0]) return fpData[0];
-      if (xi >= xpData[xpData.length - 1]) return fpData[fpData.length - 1];
+    return new JsNDArray(
+      x.data.map(xi => {
+        // Binary search for interval
+        if (xi <= xpData[0]) return fpData[0];
+        if (xi >= xpData[xpData.length - 1]) return fpData[fpData.length - 1];
 
-      let lo = 0, hi = xpData.length - 1;
-      while (hi - lo > 1) {
-        const mid = Math.floor((lo + hi) / 2);
-        if (xpData[mid] <= xi) lo = mid;
-        else hi = mid;
-      }
+        let lo = 0,
+          hi = xpData.length - 1;
+        while (hi - lo > 1) {
+          const mid = Math.floor((lo + hi) / 2);
+          if (xpData[mid] <= xi) lo = mid;
+          else hi = mid;
+        }
 
-      // Linear interpolation
-      const t = (xi - xpData[lo]) / (xpData[hi] - xpData[lo]);
-      return fpData[lo] + t * (fpData[hi] - fpData[lo]);
-    }), x.shape);
+        // Linear interpolation
+        const t = (xi - xpData[lo]) / (xpData[hi] - xpData[lo]);
+        return fpData[lo] + t * (fpData[hi] - fpData[lo]);
+      }),
+      x.shape
+    );
   }
 
   // ============ Histogram ============
@@ -1119,7 +1181,8 @@ export class JsBackend implements Backend {
       const nth = (arr: { value: number; idx: number }[], k: number, lo: number, hi: number) => {
         while (lo < hi) {
           const pivot = arr[Math.floor((lo + hi) / 2)].value;
-          let i = lo, j = hi;
+          let i = lo,
+            j = hi;
           while (i <= j) {
             while (arr[i].value < pivot) i++;
             while (arr[j].value > pivot) j--;
@@ -1204,10 +1267,16 @@ export class JsBackend implements Backend {
       }
 
       // Quickselect-style partition
-      const nth = (arr: { value: number; origIdx: number }[], k: number, lo: number, hi: number) => {
+      const nth = (
+        arr: { value: number; origIdx: number }[],
+        k: number,
+        lo: number,
+        hi: number
+      ) => {
         while (lo < hi) {
           const pivot = arr[Math.floor((lo + hi) / 2)].value;
-          let i = lo, j = hi;
+          let i = lo,
+            j = hi;
           while (i <= j) {
             while (arr[i].value < pivot) i++;
             while (arr[j].value > pivot) j--;
@@ -1475,28 +1544,43 @@ export class JsBackend implements Backend {
   // ============ Math - Scalar ============
 
   addScalar(arr: NDArray, scalar: number): NDArray {
-    return new JsNDArray(arr.data.map((x) => x + scalar), arr.shape);
+    return new JsNDArray(
+      arr.data.map(x => x + scalar),
+      arr.shape
+    );
   }
 
   subScalar(arr: NDArray, scalar: number): NDArray {
-    return new JsNDArray(arr.data.map((x) => x - scalar), arr.shape);
+    return new JsNDArray(
+      arr.data.map(x => x - scalar),
+      arr.shape
+    );
   }
 
   mulScalar(arr: NDArray, scalar: number): NDArray {
-    return new JsNDArray(arr.data.map((x) => x * scalar), arr.shape);
+    return new JsNDArray(
+      arr.data.map(x => x * scalar),
+      arr.shape
+    );
   }
 
   divScalar(arr: NDArray, scalar: number): NDArray {
-    return new JsNDArray(arr.data.map((x) => x / scalar), arr.shape);
+    return new JsNDArray(
+      arr.data.map(x => x / scalar),
+      arr.shape
+    );
   }
 
   powScalar(arr: NDArray, scalar: number): NDArray {
-    return new JsNDArray(arr.data.map((x) => Math.pow(x, scalar)), arr.shape);
+    return new JsNDArray(
+      arr.data.map(x => Math.pow(x, scalar)),
+      arr.shape
+    );
   }
 
   clip(arr: NDArray, min: number, max: number): NDArray {
     return new JsNDArray(
-      arr.data.map((x) => Math.min(Math.max(x, min), max)),
+      arr.data.map(x => Math.min(Math.max(x, min), max)),
       arr.shape
     );
   }
@@ -1576,11 +1660,11 @@ export class JsBackend implements Backend {
   }
 
   all(arr: NDArray): boolean {
-    return arr.data.every((x) => x !== 0);
+    return arr.data.every(x => x !== 0);
   }
 
   any(arr: NDArray): boolean {
-    return arr.data.some((x) => x !== 0);
+    return arr.data.some(x => x !== 0);
   }
 
   sumAxis(arr: NDArray, axis: number): NDArray {
@@ -1613,7 +1697,7 @@ export class JsBackend implements Backend {
     const sumResult = this.sumAxis(arr, axis);
     const divisor = arr.shape[axis];
     return new JsNDArray(
-      sumResult.data.map((x) => x / divisor),
+      sumResult.data.map(x => x / divisor),
       sumResult.shape
     );
   }
@@ -1787,7 +1871,10 @@ export class JsBackend implements Backend {
       const data = new Float64Array(cols).fill(1);
       for (let j = 0; j < cols; j++) {
         for (let i = 0; i < rows; i++) {
-          if (arr.data[i * cols + j] === 0) { data[j] = 0; break; }
+          if (arr.data[i * cols + j] === 0) {
+            data[j] = 0;
+            break;
+          }
         }
       }
       return new JsNDArray(data, [cols]);
@@ -1795,7 +1882,10 @@ export class JsBackend implements Backend {
       const data = new Float64Array(rows).fill(1);
       for (let i = 0; i < rows; i++) {
         for (let j = 0; j < cols; j++) {
-          if (arr.data[i * cols + j] === 0) { data[i] = 0; break; }
+          if (arr.data[i * cols + j] === 0) {
+            data[i] = 0;
+            break;
+          }
         }
       }
       return new JsNDArray(data, [rows]);
@@ -1810,7 +1900,10 @@ export class JsBackend implements Backend {
       const data = new Float64Array(cols).fill(0);
       for (let j = 0; j < cols; j++) {
         for (let i = 0; i < rows; i++) {
-          if (arr.data[i * cols + j] !== 0) { data[j] = 1; break; }
+          if (arr.data[i * cols + j] !== 0) {
+            data[j] = 1;
+            break;
+          }
         }
       }
       return new JsNDArray(data, [cols]);
@@ -1818,7 +1911,10 @@ export class JsBackend implements Backend {
       const data = new Float64Array(rows).fill(0);
       for (let i = 0; i < rows; i++) {
         for (let j = 0; j < cols; j++) {
-          if (arr.data[i * cols + j] !== 0) { data[i] = 1; break; }
+          if (arr.data[i * cols + j] !== 0) {
+            data[i] = 1;
+            break;
+          }
         }
       }
       return new JsNDArray(data, [rows]);
@@ -2103,7 +2199,6 @@ export class JsBackend implements Backend {
     if (arr.shape.length !== 2) throw new Error('svd requires 2D');
     const [m, n] = arr.shape;
     const k = Math.min(m, n);
-    const arrData = arr.data;
 
     // Compute A^T A
     const at = this.transpose(arr);
@@ -2861,7 +2956,9 @@ export class JsBackend implements Backend {
     const inputSubscripts = inputStr.split(',').map(s => s.trim());
 
     if (inputSubscripts.length !== operands.length) {
-      throw new Error(`einsum: expected ${inputSubscripts.length} operands, got ${operands.length}`);
+      throw new Error(
+        `einsum: expected ${inputSubscripts.length} operands, got ${operands.length}`
+      );
     }
 
     // Map each label to its dimension size
@@ -2872,7 +2969,9 @@ export class JsBackend implements Backend {
       const labels = inputSubscripts[i].split('');
       inputLabels.push(labels);
       if (labels.length !== operands[i].shape.length) {
-        throw new Error(`einsum: operand ${i} has ${operands[i].shape.length} dimensions but subscripts specify ${labels.length}`);
+        throw new Error(
+          `einsum: operand ${i} has ${operands[i].shape.length} dimensions but subscripts specify ${labels.length}`
+        );
       }
       for (let j = 0; j < labels.length; j++) {
         const label = labels[j];
@@ -2919,7 +3018,8 @@ export class JsBackend implements Backend {
 
     // Compute contracted dimensions size
     const contractedSizes = contractedLabels.map(l => labelSizes.get(l)!);
-    const contractedTotal = contractedSizes.length === 0 ? 1 : contractedSizes.reduce((a, b) => a * b, 1);
+    const contractedTotal =
+      contractedSizes.length === 0 ? 1 : contractedSizes.reduce((a, b) => a * b, 1);
 
     const result = new Float64Array(outputSize);
 
@@ -2946,10 +3046,10 @@ export class JsBackend implements Backend {
         const contrCoords: Map<string, number> = new Map();
         let contrRemaining = contrIdx;
         for (let d = 0; d < contractedLabels.length; d++) {
-          const size = contractedSizes[d];
-          const stride = d < contractedSizes.length - 1
-            ? contractedSizes.slice(d + 1).reduce((a, b) => a * b, 1)
-            : 1;
+          const stride =
+            d < contractedSizes.length - 1
+              ? contractedSizes.slice(d + 1).reduce((a, b) => a * b, 1)
+              : 1;
           const coord = Math.floor(contrRemaining / stride);
           contrRemaining = contrRemaining % stride;
           contrCoords.set(contractedLabels[d], coord);
@@ -3013,7 +3113,8 @@ export class JsBackend implements Backend {
         remaining = remaining % dstStrides[d];
       }
 
-      let srcIdx1 = 0, srcIdx2 = 0;
+      let srcIdx1 = 0,
+        srcIdx2 = 0;
       for (let d = 0; d < shape.length; d++) {
         if (d === axis) {
           srcIdx1 += (coords[d] + 1) * srcStrides[d];
@@ -3075,7 +3176,8 @@ export class JsBackend implements Backend {
         const nextCoords = [...coords];
         prevCoords[axis] = axisCoord - 1;
         nextCoords[axis] = axisCoord + 1;
-        let prevIdx = 0, nextIdx = 0;
+        let prevIdx = 0,
+          nextIdx = 0;
         for (let d = 0; d < ndim; d++) {
           prevIdx += prevCoords[d] * strides[d];
           nextIdx += nextCoords[d] * strides[d];
@@ -3109,11 +3211,7 @@ export class JsBackend implements Backend {
     const [b1, b2, b3] = bFlat.data;
 
     return new JsNDArray(
-      new Float64Array([
-        a2 * b3 - a3 * b2,
-        a3 * b1 - a1 * b3,
-        a1 * b2 - a2 * b1,
-      ]),
+      new Float64Array([a2 * b3 - a3 * b2, a3 * b1 - a1 * b3, a1 * b2 - a2 * b1]),
       [3]
     );
   }
@@ -3174,10 +3272,7 @@ export class JsBackend implements Backend {
       const xVar = this.var(xFlat, 1);
       const yVar = this.var(yFlat, 1);
 
-      return new JsNDArray(
-        new Float64Array([xVar, cov, cov, yVar]),
-        [2, 2]
-      );
+      return new JsNDArray(new Float64Array([xVar, cov, cov, yVar]), [2, 2]);
     }
   }
 
@@ -3250,10 +3345,7 @@ export class JsBackend implements Backend {
   correlate(a: NDArray, v: NDArray, mode: 'full' | 'same' | 'valid' = 'valid'): NDArray {
     // Correlation is convolution with reversed v
     const vFlat = this.flatten(v);
-    const vReversed = new JsNDArray(
-      new Float64Array([...vFlat.data].reverse()),
-      vFlat.shape
-    );
+    const vReversed = new JsNDArray(new Float64Array([...vFlat.data].reverse()), vFlat.shape);
     return this.convolve(a, vReversed, mode);
   }
 
@@ -3336,7 +3428,7 @@ export class JsBackend implements Backend {
     if (start === 0 || stop === 0) {
       throw new Error('geomspace: start and stop must be non-zero');
     }
-    if ((start < 0) !== (stop < 0)) {
+    if (start < 0 !== stop < 0) {
       throw new Error('geomspace: start and stop must have same sign');
     }
 
@@ -3578,9 +3670,6 @@ export class JsBackend implements Backend {
     const strides = this._computeStrides(shape);
     const axisLen = shape[axis];
 
-    // Number of 1D subarrays to sort
-    const nSlices = arr.data.length / axisLen;
-
     // Compute the stride pattern excluding the sort axis
     const outerShape = shape.filter((_, i) => i !== axis);
     const outerStrides = outerShape.length > 0 ? this._computeStrides(outerShape) : [1];
@@ -3687,7 +3776,8 @@ export class JsBackend implements Backend {
       }
 
       indices.sort((a, b) => {
-        const va = values[a], vb = values[b];
+        const va = values[a],
+          vb = values[b];
         if (Number.isNaN(va) && Number.isNaN(vb)) return 0;
         if (Number.isNaN(va)) return 1;
         if (Number.isNaN(vb)) return -1;
@@ -3709,12 +3799,17 @@ export class JsBackend implements Backend {
     return new JsNDArray(result, shape);
   }
 
-  searchsorted(arr: NDArray, v: number | NDArray, side: 'left' | 'right' = 'left'): NDArray | number {
+  searchsorted(
+    arr: NDArray,
+    v: number | NDArray,
+    side: 'left' | 'right' = 'left'
+  ): NDArray | number {
     const flat = this.flatten(arr);
     const data = flat.data;
 
     const search = (val: number): number => {
-      let lo = 0, hi = data.length;
+      let lo = 0,
+        hi = data.length;
       while (lo < hi) {
         const mid = Math.floor((lo + hi) / 2);
         if (side === 'left') {
@@ -3780,9 +3875,13 @@ export class JsBackend implements Backend {
   }
 
   nanmean(arr: NDArray): number {
-    let sum = 0, count = 0;
+    let sum = 0,
+      count = 0;
     for (let i = 0; i < arr.data.length; i++) {
-      if (!Number.isNaN(arr.data[i])) { sum += arr.data[i]; count++; }
+      if (!Number.isNaN(arr.data[i])) {
+        sum += arr.data[i];
+        count++;
+      }
     }
     return count > 0 ? sum / count : NaN;
   }
@@ -3790,7 +3889,8 @@ export class JsBackend implements Backend {
   nanvar(arr: NDArray, ddof: number = 0): number {
     const mean = this.nanmean(arr);
     if (Number.isNaN(mean)) return NaN;
-    let sumSq = 0, count = 0;
+    let sumSq = 0,
+      count = 0;
     for (let i = 0; i < arr.data.length; i++) {
       if (!Number.isNaN(arr.data[i])) {
         const diff = arr.data[i] - mean;
@@ -3822,20 +3922,24 @@ export class JsBackend implements Backend {
   }
 
   nanargmin(arr: NDArray): number {
-    let minIdx = -1, minVal = Infinity;
+    let minIdx = -1,
+      minVal = Infinity;
     for (let i = 0; i < arr.data.length; i++) {
       if (!Number.isNaN(arr.data[i]) && arr.data[i] < minVal) {
-        minVal = arr.data[i]; minIdx = i;
+        minVal = arr.data[i];
+        minIdx = i;
       }
     }
     return minIdx;
   }
 
   nanargmax(arr: NDArray): number {
-    let maxIdx = -1, maxVal = -Infinity;
+    let maxIdx = -1,
+      maxVal = -Infinity;
     for (let i = 0; i < arr.data.length; i++) {
       if (!Number.isNaN(arr.data[i]) && arr.data[i] > maxVal) {
-        maxVal = arr.data[i]; maxIdx = i;
+        maxVal = arr.data[i];
+        maxIdx = i;
       }
     }
     return maxIdx;
@@ -3856,7 +3960,9 @@ export class JsBackend implements Backend {
   }
 
   private _sortedNonNaN(arr: NDArray): number[] {
-    return Array.from(arr.data).filter(x => !Number.isNaN(x)).sort((a, b) => a - b);
+    return Array.from(arr.data)
+      .filter(x => !Number.isNaN(x))
+      .sort((a, b) => a - b);
   }
 
   median(arr: NDArray): number {
@@ -3911,7 +4017,8 @@ export class JsBackend implements Backend {
 
   histogram(arr: NDArray, bins: number = 10): { hist: NDArray; binEdges: NDArray } {
     const data = arr.data;
-    let min = Infinity, max = -Infinity;
+    let min = Infinity,
+      max = -Infinity;
     for (let i = 0; i < data.length; i++) {
       if (!Number.isNaN(data[i])) {
         if (data[i] < min) min = data[i];
@@ -3922,7 +4029,7 @@ export class JsBackend implements Backend {
       // All NaN
       return {
         hist: new JsNDArray(new Float64Array(bins), [bins]),
-        binEdges: new JsNDArray(new Float64Array(bins + 1), [bins + 1])
+        binEdges: new JsNDArray(new Float64Array(bins + 1), [bins + 1]),
       };
     }
 
@@ -3942,7 +4049,7 @@ export class JsBackend implements Backend {
 
     return {
       hist: new JsNDArray(hist, [bins]),
-      binEdges: new JsNDArray(edges, [bins + 1])
+      binEdges: new JsNDArray(edges, [bins + 1]),
     };
   }
 
@@ -3961,7 +4068,7 @@ export class JsBackend implements Backend {
     x ^= x >>> 17;
     x ^= x << 5;
     this._rngState = x >>> 0;
-    return (this._rngState >>> 0) / 0xFFFFFFFF;
+    return (this._rngState >>> 0) / 0xffffffff;
   }
 
   seed(s: number): void {
