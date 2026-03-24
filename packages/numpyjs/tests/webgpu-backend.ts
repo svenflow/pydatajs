@@ -29,7 +29,7 @@ const shaderCache = new Map<string, GPUComputePipeline>();
  * GPU-resident tensor - data lives in GPUBuffer (f32)
  * This is the internal representation used by WebGPU ops.
  */
-class WebGPUTensor {
+export class WebGPUTensor {
   readonly buffer: GPUBuffer;
   readonly shape: number[];
   readonly device: GPUDevice;
@@ -5381,7 +5381,7 @@ class BufferManager {
 
 export class WebGPUBackend implements Backend {
   name = 'webgpu';
-  private device: GPUDevice;
+  readonly device: GPUDevice;
   private bufferManager: BufferManager;
 
   constructor(device: GPUDevice) {
@@ -8406,6 +8406,118 @@ export class WebGPUBackend implements Backend {
     this.bufferManager.releaseStaging(stagingBuffer);
 
     return this.createArray(result, [m, n]);
+  }
+
+  /**
+   * GPU-resident matmul: keeps data on GPU, no CPU readback.
+   * For maximum performance benchmarking.
+   * Input: WebGPUTensor (f32 on GPU), Output: WebGPUTensor (f32 on GPU)
+   */
+  matmulTensor(a: WebGPUTensor, b: WebGPUTensor): WebGPUTensor {
+    const [m, k1] = a.shape;
+    const [k2, n] = b.shape;
+    if (k1 !== k2) throw new Error(`Dimension mismatch: ${k1} vs ${k2}`);
+    const k = k1;
+
+    const config = getBestConfig(m, k, n);
+    if (!config) throw new Error('No suitable matmul config');
+
+    // Determine padded dimensions
+    const kPadded = config.usesVec4A ? Math.ceil(k / 4) * 4 : k;
+    const nPadded = config.usesVec4B ? Math.ceil(n / 4) * 4 : n;
+
+    // Prepare A buffer: if vec4A, need to repack with K-padding
+    // For now, assume inputs are already properly aligned (pad in createTensorF32)
+    // TODO: handle non-aligned inputs via a repack compute shader
+    const aBufferSize = m * kPadded * 4;
+    const bBufferSize = k * nPadded * 4;
+    const outputSize = config.usesVec4C ? m * nPadded * 4 : m * n * 4;
+
+    // Allocate buffers from pool
+    const uniformBuffer = this.bufferManager.acquire(
+      16,
+      GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
+    );
+    const outputBuffer = this.bufferManager.acquire(
+      outputSize,
+      GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC
+    );
+
+    // Write uniforms
+    this.device.queue.writeBuffer(uniformBuffer, 0, new Uint32Array([m, k, n, nPadded]));
+
+    // Get or create compute pipeline
+    const cacheKey = `matmul-${config.name}`;
+    let pipeline = shaderCache.get(cacheKey);
+    if (!pipeline) {
+      const shaderModule = this.device.createShaderModule({ code: config.shader });
+      pipeline = this.device.createComputePipeline({
+        layout: 'auto',
+        compute: { module: shaderModule, entryPoint: 'main' },
+      });
+      shaderCache.set(cacheKey, pipeline);
+    }
+
+    // Create bind group using tensor GPU buffers directly
+    const bindGroup = this.device.createBindGroup({
+      layout: pipeline.getBindGroupLayout(0),
+      entries: [
+        { binding: 0, resource: { buffer: uniformBuffer } },
+        { binding: 1, resource: { buffer: a.buffer, size: aBufferSize } },
+        { binding: 2, resource: { buffer: b.buffer, size: bBufferSize } },
+        { binding: 3, resource: { buffer: outputBuffer } },
+      ],
+    });
+
+    // Dispatch compute
+    const commandEncoder = this.device.createCommandEncoder();
+    const passEncoder = commandEncoder.beginComputePass();
+    passEncoder.setPipeline(pipeline);
+    passEncoder.setBindGroup(0, bindGroup);
+    passEncoder.dispatchWorkgroups(Math.ceil(n / config.tileN), Math.ceil(m / config.tileM));
+    passEncoder.end();
+    this.device.queue.submit([commandEncoder.finish()]);
+
+    // Release uniform buffer
+    this.bufferManager.release(uniformBuffer);
+
+    // Create output tensor (data stays on GPU)
+    const outShape = config.usesVec4C && nPadded !== n ? [m, nPadded] : [m, n];
+    return new WebGPUTensor(outputBuffer, outShape, this.device);
+  }
+
+  /**
+   * Create a WebGPUTensor with f32 data already on GPU
+   * Pads K and N dimensions for vec4 alignment
+   */
+  createAlignedTensor(
+    data: Float32Array,
+    shape: number[],
+    padK?: boolean,
+    padN?: boolean
+  ): WebGPUTensor {
+    const [rows, cols] = shape;
+    const paddedCols = padN ? Math.ceil(cols / 4) * 4 : cols;
+
+    let f32: Float32Array;
+    if (paddedCols !== cols) {
+      f32 = new Float32Array(rows * paddedCols);
+      for (let r = 0; r < rows; r++) {
+        for (let c = 0; c < cols; c++) {
+          f32[r * paddedCols + c] = data[r * cols + c];
+        }
+      }
+    } else {
+      f32 = data;
+    }
+
+    const buffer = this.device.createBuffer({
+      size: f32.byteLength,
+      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST,
+    });
+    this.device.queue.writeBuffer(buffer, 0, f32);
+
+    return new WebGPUTensor(buffer, [rows, paddedCols], this.device);
   }
 
   /**

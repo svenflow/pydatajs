@@ -58,22 +58,30 @@ describe('benchmarks', () => {
 
       const flops = 2 * size * size * size;
 
-      // ============ numpyjs WebGPU ============
+      // ============ numpyjs WebGPU (GPU-resident, no readback) ============
       {
-        const aDataArray = Array.from(aData);
-        const bDataArray = Array.from(bData);
-        const gpuA = numpyjsWebgpuBackend.array(aDataArray, [size, size]);
-        const gpuB = numpyjsWebgpuBackend.array(bDataArray, [size, size]);
+        // Upload once, benchmark GPU kernel only (no CPU conversion overhead)
+        const gpuA = numpyjsWebgpuBackend.createAlignedTensor(aData, [size, size], true, true);
+        const gpuB = numpyjsWebgpuBackend.createAlignedTensor(bData, [size, size], false, true);
 
-        for (let i = 0; i < WARMUP_RUNS; i++) await numpyjsWebgpuBackend.matmulAsync(gpuA, gpuB);
+        // Warmup
+        for (let i = 0; i < WARMUP_RUNS; i++) {
+          const c = numpyjsWebgpuBackend.matmulTensor(gpuA, gpuB);
+          c.destroy();
+        }
+        // Flush GPU queue to ensure warmup completes
+        await numpyjsWebgpuBackend.device.queue.onSubmittedWorkDone();
         await sleep(10);
 
         const times: number[] = [];
         for (let i = 0; i < BENCHMARK_RUNS; i++) {
           const start = performance.now();
-          await numpyjsWebgpuBackend.matmulAsync(gpuA, gpuB);
+          const c = numpyjsWebgpuBackend.matmulTensor(gpuA, gpuB);
+          // Wait for GPU to finish to get accurate timing
+          await numpyjsWebgpuBackend.device.queue.onSubmittedWorkDone();
           const end = performance.now();
           times.push(end - start);
+          c.destroy();
         }
 
         const avg = times.reduce((a, b) => a + b) / times.length;
@@ -89,6 +97,9 @@ describe('benchmarks', () => {
         console.log(
           `numpyjs-webgpu: ${avg.toFixed(2).padStart(8)}ms  (${gflops.toFixed(2)} GFLOPS)`
         );
+
+        gpuA.destroy();
+        gpuB.destroy();
       }
 
       // ============ tfjs-webgpu ============
