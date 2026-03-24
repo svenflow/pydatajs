@@ -4,12 +4,14 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>numpyjs WebGPU Matmul Benchmark</title>
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.22.0/dist/tf.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-backend-webgpu@4.22.0/dist/tf-backend-webgpu.min.js"></script>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body {
       font-family: -apple-system, BlinkMacSystemFont, 'SF Pro', sans-serif;
       background: #111; color: #e0e0e0;
-      padding: 16px; max-width: 600px; margin: 0 auto;
+      padding: 16px; max-width: 700px; margin: 0 auto;
     }
     h1 { font-size: 22px; color: #fff; margin-bottom: 8px; }
     .subtitle { font-size: 13px; color: #888; margin-bottom: 16px; }
@@ -19,11 +21,12 @@
     }
     .card h2 { font-size: 16px; color: #fff; margin-bottom: 12px; }
     table { width: 100%; border-collapse: collapse; font-size: 13px; }
-    th { text-align: left; padding: 6px 8px; color: #888; border-bottom: 1px solid #333; }
+    th { text-align: left; padding: 6px 8px; color: #888; border-bottom: 1px solid #333; font-size: 12px; }
     td { padding: 6px 8px; border-bottom: 1px solid #222; }
     .gflops { font-weight: bold; font-size: 15px; }
     .winner { color: #4ade80; }
-    .loser { color: #888; }
+    .faster { color: #4ade80; font-weight: bold; }
+    .slower { color: #f87171; }
     .running { color: #fbbf24; }
     .btn {
       display: block; width: 100%; padding: 14px;
@@ -36,15 +39,16 @@
     #status { font-size: 13px; color: #888; margin-bottom: 8px; min-height: 20px; }
     pre {
       background: #1a1a1a; padding: 10px; border-radius: 8px;
-      font-size: 11px; overflow-x: auto; max-height: 200px;
+      font-size: 11px; overflow-x: auto; max-height: 300px;
       overflow-y: auto; color: #aaa; white-space: pre-wrap;
     }
     .device-info { font-size: 12px; color: #666; margin-bottom: 12px; }
+    .note { font-size: 11px; color: #555; margin-top: 8px; }
   </style>
 </head>
 <body>
-  <h1>⚡ numpyjs Matmul Benchmark</h1>
-  <div class="subtitle">WebGPU matrix multiplication • GPU-resident f32</div>
+  <h1>⚡ numpyjs vs tfjs Matmul Benchmark</h1>
+  <div class="subtitle">WebGPU matrix multiplication • GPU-resident f32 • B-cache kernel</div>
   <div id="device-info" class="device-info"></div>
 
   <button class="btn" id="runBtn" onclick="runBenchmark()">Run Benchmark</button>
@@ -54,10 +58,18 @@
     <h2>Results</h2>
     <table>
       <thead>
-        <tr><th>Size</th><th>Time</th><th>GFLOPS</th><th>vs tfjs-BCACHE</th></tr>
+        <tr>
+          <th>Size</th>
+          <th>numpyjs</th>
+          <th>GFLOPS</th>
+          <th>tfjs</th>
+          <th>GFLOPS</th>
+          <th>Winner</th>
+        </tr>
       </thead>
       <tbody id="results"></tbody>
     </table>
+    <div class="note">numpyjs = pure GPU kernel time. tfjs = kernel + readback (await data()).</div>
   </div>
 
   <div class="card">
@@ -204,11 +216,10 @@ function createBuffer(data, usage) {
   return buf;
 }
 
-async function benchmarkMatmul(size, warmup = 5, runs = 10) {
+async function benchmarkOurs(size, warmup = 5, runs = 10) {
   const n = size;
-  const nPad = Math.ceil(n / 4) * 4; // vec4 align
+  const nPad = Math.ceil(n / 4) * 4;
 
-  // Create random f32 matrices with vec4 padding
   const aData = new Float32Array(n * nPad);
   const bData = new Float32Array(n * nPad);
   for (let r = 0; r < n; r++) {
@@ -224,8 +235,7 @@ async function benchmarkMatmul(size, warmup = 5, runs = 10) {
     size: n * nPad * 4,
     usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC,
   });
-  const uniformData = new Uint32Array([n, n, n, 0]);
-  const uniformBuf = createBuffer(uniformData, GPUBufferUsage.UNIFORM);
+  const uniformBuf = createBuffer(new Uint32Array([n, n, n, 0]), GPUBufferUsage.UNIFORM);
 
   const bindGroup = device.createBindGroup({
     layout: pipeline.getBindGroupLayout(0),
@@ -240,7 +250,6 @@ async function benchmarkMatmul(size, warmup = 5, runs = 10) {
   const wgX = Math.ceil(n / 32);
   const wgY = Math.ceil(n / 32);
 
-  // Warmup
   for (let i = 0; i < warmup; i++) {
     const enc = device.createCommandEncoder();
     const pass = enc.beginComputePass();
@@ -252,7 +261,6 @@ async function benchmarkMatmul(size, warmup = 5, runs = 10) {
   }
   await device.queue.onSubmittedWorkDone();
 
-  // Benchmark
   const times = [];
   for (let i = 0; i < runs; i++) {
     const start = performance.now();
@@ -267,28 +275,61 @@ async function benchmarkMatmul(size, warmup = 5, runs = 10) {
     times.push(performance.now() - start);
   }
 
-  aBuf.destroy();
-  bBuf.destroy();
-  cBuf.destroy();
-  uniformBuf.destroy();
+  aBuf.destroy(); bBuf.destroy(); cBuf.destroy(); uniformBuf.destroy();
 
   const avg = times.reduce((a, b) => a + b) / times.length;
-  const min = Math.min(...times);
   const flops = 2 * n * n * n;
-  const gflops = flops / (avg / 1000) / 1e9;
-
-  return { size, avgMs: avg, minMs: min, gflops };
+  return { avgMs: avg, gflops: flops / (avg / 1000) / 1e9 };
 }
 
-// Auto-detect sizes based on device capability
+async function benchmarkTfjs(size, warmup = 5, runs = 10) {
+  try {
+    if (!tf) throw new Error('tfjs not loaded');
+    await tf.setBackend('webgpu');
+    await tf.ready();
+  } catch (e) {
+    return null; // tfjs not available
+  }
+
+  const aData = new Float32Array(size * size);
+  const bData = new Float32Array(size * size);
+  for (let i = 0; i < size * size; i++) {
+    aData[i] = Math.random();
+    bData[i] = Math.random();
+  }
+
+  const tfA = tf.tensor2d(aData, [size, size], 'float32');
+  const tfB = tf.tensor2d(bData, [size, size], 'float32');
+
+  for (let i = 0; i < warmup; i++) {
+    const c = tf.matMul(tfA, tfB);
+    await c.data();
+    c.dispose();
+  }
+
+  const times = [];
+  for (let i = 0; i < runs; i++) {
+    const start = performance.now();
+    const c = tf.matMul(tfA, tfB);
+    await c.data();
+    times.push(performance.now() - start);
+    c.dispose();
+  }
+
+  tfA.dispose(); tfB.dispose();
+
+  const avg = times.reduce((a, b) => a + b) / times.length;
+  const flops = 2 * size * size * size;
+  return { avgMs: avg, gflops: flops / (avg / 1000) / 1e9 };
+}
+
 function getSizes() {
   const params = new URLSearchParams(location.search);
   if (params.has('sizes')) {
     return params.get('sizes').split(',').map(Number);
   }
-  // Default: test common sizes. Skip 4096 on mobile (too slow / OOM)
   const isMobile = /iPhone|iPad|Android/i.test(navigator.userAgent);
-  return isMobile ? [256, 512, 1024, 2048] : [256, 512, 1024, 2048, 4096];
+  return isMobile ? [256, 512, 1024, 2048] : [256, 512, 1024, 2048, 4096, 8192];
 }
 
 window.runBenchmark = async function() {
@@ -308,19 +349,60 @@ window.runBenchmark = async function() {
       setStatus(`Benchmarking ${size}×${size}...`);
       log(`\n--- ${size}×${size} ---`);
 
-      const result = await benchmarkMatmul(size);
-      allResults.push(result);
+      // numpyjs benchmark
+      log('  numpyjs...');
+      let ours;
+      try {
+        ours = await benchmarkOurs(size);
+        log(`  numpyjs: ${ours.avgMs.toFixed(2)}ms = ${ours.gflops.toFixed(0)} GFLOPS`);
+      } catch (e) {
+        log(`  numpyjs: FAILED - ${e.message}`);
+        ours = null;
+      }
 
-      log(`  ${result.avgMs.toFixed(2)}ms avg (${result.minMs.toFixed(2)}ms min) = ${result.gflops.toFixed(0)} GFLOPS`);
+      // tfjs benchmark
+      log('  tfjs...');
+      let theirs;
+      try {
+        theirs = await benchmarkTfjs(size);
+        if (theirs) {
+          log(`  tfjs:    ${theirs.avgMs.toFixed(2)}ms = ${theirs.gflops.toFixed(0)} GFLOPS`);
+        } else {
+          log('  tfjs:    not available');
+        }
+      } catch (e) {
+        log(`  tfjs: FAILED - ${e.message}`);
+        theirs = null;
+      }
+
+      allResults.push({ size, ours, theirs });
 
       // Update table
       const tr = document.createElement('tr');
-      const gflopsClass = result.gflops > 1000 ? 'winner' : '';
+      const oursGflops = ours ? ours.gflops.toFixed(0) : '—';
+      const theirsGflops = theirs ? theirs.gflops.toFixed(0) : '—';
+      const oursMs = ours ? ours.avgMs.toFixed(2) + 'ms' : '—';
+      const theirsMs = theirs ? theirs.avgMs.toFixed(2) + 'ms' : '—';
+
+      let winnerHtml = '—';
+      if (ours && theirs) {
+        if (ours.avgMs < theirs.avgMs) {
+          const speedup = (theirs.avgMs / ours.avgMs).toFixed(2);
+          winnerHtml = `<span class="faster">numpyjs ${speedup}x</span>`;
+        } else {
+          const speedup = (ours.avgMs / theirs.avgMs).toFixed(2);
+          winnerHtml = `<span class="slower">tfjs ${speedup}x</span>`;
+        }
+      }
+
+      const gflopsClass = ours && ours.gflops > 1000 ? 'winner' : '';
       tr.innerHTML = `
         <td>${size}</td>
-        <td>${result.avgMs.toFixed(2)}ms</td>
-        <td class="gflops ${gflopsClass}">${result.gflops.toFixed(0)}</td>
-        <td>—</td>
+        <td>${oursMs}</td>
+        <td class="gflops ${gflopsClass}">${oursGflops}</td>
+        <td>${theirsMs}</td>
+        <td>${theirsGflops}</td>
+        <td>${winnerHtml}</td>
       `;
       resultsEl.appendChild(tr);
     }
@@ -328,16 +410,27 @@ window.runBenchmark = async function() {
     // Summary
     log('\n=== SUMMARY ===');
     for (const r of allResults) {
-      log(`${r.size}×${r.size}: ${r.gflops.toFixed(0)} GFLOPS (${r.avgMs.toFixed(2)}ms)`);
+      const oursStr = r.ours ? `${r.ours.gflops.toFixed(0)} GFLOPS (${r.ours.avgMs.toFixed(2)}ms)` : 'N/A';
+      const theirsStr = r.theirs ? `${r.theirs.gflops.toFixed(0)} GFLOPS (${r.theirs.avgMs.toFixed(2)}ms)` : 'N/A';
+      let cmp = '';
+      if (r.ours && r.theirs) {
+        if (r.ours.avgMs < r.theirs.avgMs) {
+          cmp = ` → numpyjs ${(r.theirs.avgMs / r.ours.avgMs).toFixed(2)}x faster`;
+        } else {
+          cmp = ` → tfjs ${(r.ours.avgMs / r.theirs.avgMs).toFixed(2)}x faster`;
+        }
+      }
+      log(`${r.size}: numpyjs ${oursStr} | tfjs ${theirsStr}${cmp}`);
     }
 
-    const peak = allResults.reduce((a, b) => a.gflops > b.gflops ? a : b);
-    log(`\nPeak: ${peak.gflops.toFixed(0)} GFLOPS at ${peak.size}×${peak.size}`);
-    if (peak.gflops > 1000) log(`🔥 ${(peak.gflops / 1000).toFixed(1)} TFLOPS!`);
+    const oursResults = allResults.filter(r => r.ours);
+    if (oursResults.length > 0) {
+      const peak = oursResults.reduce((a, b) => (a.ours.gflops > b.ours.gflops ? a : b));
+      log(`\nPeak: ${peak.ours.gflops.toFixed(0)} GFLOPS at ${peak.size}×${peak.size}`);
+      if (peak.ours.gflops > 1000) log(`🔥 ${(peak.ours.gflops / 1000).toFixed(1)} TFLOPS!`);
+      setStatus(`Done! Peak: ${peak.ours.gflops.toFixed(0)} GFLOPS`);
+    }
 
-    setStatus(`Done! Peak: ${peak.gflops.toFixed(0)} GFLOPS`);
-
-    // Store for programmatic access
     window.benchmarkResults = allResults;
 
   } catch (e) {
