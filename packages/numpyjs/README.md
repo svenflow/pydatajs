@@ -1,6 +1,6 @@
 # numpyjs
 
-**NumPy for JavaScript** — High-performance NumPy-like library for TypeScript, powered by Rust/WASM and WebGPU.
+**NumPy for JavaScript** — High-performance NumPy-like library for TypeScript, with pure JS and WebGPU backends.
 
 Part of the [pydatajs](https://github.com/svenflow/pydatajs) ecosystem.
 
@@ -9,10 +9,9 @@ Part of the [pydatajs](https://github.com/svenflow/pydatajs) ecosystem.
 ## Features
 
 - **NumPy-compatible API** - Familiar interface for Python developers
-- **Rust performance** - Compiled to native code or WebAssembly
-- **Pluggable backends** - CPU (ndarray/faer), WASM, WebGPU
+- **Two backends** - Pure JS (CPU, works everywhere) and WebGPU (GPU-accelerated)
 - **TypeScript-first** - Full type definitions included
-- **Zero dependencies** - Self-contained WASM bundle
+- **Browser & Node.js** - JS backend works everywhere; WebGPU in supported browsers
 
 ## Installation
 
@@ -23,31 +22,38 @@ npm install numpyjs
 ## Quick Start
 
 ```typescript
-import { initNumpy, zeros, ones, arange, linspace, eye } from 'numpyjs';
-import { sin, cos, exp, log, sqrt } from 'numpyjs';
-import { linalg, random } from 'numpyjs';
+import { createBackend } from 'numpyjs';
 
-// Initialize WASM module
-await initNumpy();
+// Create a JS (CPU) backend - works everywhere
+const np = await createBackend('js');
+
+// Or create a WebGPU (GPU) backend - requires WebGPU support
+// const np = await createBackend('webgpu');
 
 // Array creation
-const a = zeros([3, 4]);           // 3x4 array of zeros
-const b = ones([2, 3]);            // 2x3 array of ones
-const c = arange(0, 10, 1);        // [0, 1, 2, ..., 9]
-const d = linspace(0, 1, 5);       // [0, 0.25, 0.5, 0.75, 1]
-const I = eye(3);                  // 3x3 identity matrix
+const a = np.zeros([3, 4]); // 3x4 array of zeros
+const b = np.ones([2, 3]); // 2x3 array of ones
+const c = np.arange(0, 10, 1); // [0, 1, 2, ..., 9]
+const d = np.linspace(0, 1, 5); // [0, 0.25, 0.5, 0.75, 1]
+const I = np.eye(3); // 3x3 identity matrix
 
 // Math operations
-const angles = linspace(0, Math.PI, 100);
-const sines = sin(angles);
-const cosines = cos(angles);
+const angles = np.linspace(0, Math.PI, 100);
+const sines = np.sin(angles);
+const cosines = np.cos(angles);
 
 // Linear algebra
-const A = NDArray.fromArray([[1, 2], [3, 4]]);
-const B = NDArray.fromArray([[5, 6], [7, 8]]);
-const C = linalg.matmul(A, B);     // Matrix multiplication
-const Ainv = linalg.inv(A);        // Matrix inverse
+const A = np.array([1, 2, 3, 4], [2, 2]);
+const B = np.array([5, 6, 7, 8], [2, 2]);
+const C = np.matmul(A, B); // Matrix multiplication
 ```
+
+## Backends
+
+| Backend  | Environment                               | Performance                                       |
+| -------- | ----------------------------------------- | ------------------------------------------------- |
+| `js`     | Node.js, Bun, all browsers                | CPU-bound, good for small-medium arrays           |
+| `webgpu` | Chrome 113+, Edge 113+, Firefox (nightly) | GPU-accelerated, best for large arrays and matmul |
 
 ## License
 

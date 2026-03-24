@@ -1,5 +1,5 @@
 /**
- * Async Backend Interface for GPU/WASM backends
+ * Async Backend Interface for GPU backends
  *
  * This interface mirrors the sync Backend interface but with async methods.
  * GPU operations are inherently async (buffer readback), so this is the native interface.
@@ -10,7 +10,7 @@ import { NDArray } from './test-utils';
 /** Async NDArray with getData() method */
 export interface AsyncNDArray {
   shape: number[];
-  /** Get data from GPU/WASM memory (async) */
+  /** Get data from GPU memory (async) */
   getData(): Promise<Float64Array>;
   /** Convert to JS array (async) */
   toArray(): Promise<number[]>;
@@ -104,7 +104,11 @@ export interface AsyncBackend {
   argpartition(arr: AsyncNDArray, kth: number, axis?: number): Promise<AsyncNDArray>;
   compress(condition: AsyncNDArray, arr: AsyncNDArray, axis?: number): Promise<AsyncNDArray>;
   extract(condition: AsyncNDArray, arr: AsyncNDArray): Promise<AsyncNDArray>;
-  select(condlist: AsyncNDArray[], choicelist: AsyncNDArray[], defaultVal?: number): Promise<AsyncNDArray>;
+  select(
+    condlist: AsyncNDArray[],
+    choicelist: AsyncNDArray[],
+    defaultVal?: number
+  ): Promise<AsyncNDArray>;
 }
 
 /**
@@ -113,8 +117,12 @@ export interface AsyncBackend {
 export function wrapSyncArray(arr: NDArray): AsyncNDArray {
   return {
     shape: arr.shape,
-    async getData() { return arr.data; },
-    async toArray() { return arr.toArray(); },
+    async getData() {
+      return arr.data;
+    },
+    async toArray() {
+      return arr.toArray();
+    },
   };
 }
 
@@ -122,12 +130,15 @@ export function wrapSyncArray(arr: NDArray): AsyncNDArray {
  * Wrap a sync Backend as AsyncBackend
  * Useful for JS backend which doesn't need async
  */
-export function wrapSyncBackend(backend: any): AsyncBackend {
-  const wrapped: any = { name: backend.name };
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export function wrapSyncBackend(backend: Record<string, any>): AsyncBackend {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const wrapped: Record<string, any> = { name: backend.name };
 
   // For each method, wrap return value in Promise
   for (const key of Object.keys(backend)) {
     if (typeof backend[key] === 'function') {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       wrapped[key] = async (...args: any[]) => {
         const result = backend[key](...args);
         if (result && typeof result === 'object' && 'shape' in result) {

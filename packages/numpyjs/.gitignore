@@ -1,11 +1,3 @@
-# Rust
-/target/
-Cargo.lock
-
-# WASM build output
-/pkg/
-/crates/rumpy-wasm/pkg/
-
 # Node
 node_modules/
 dist/
@@ -23,5 +15,3 @@ Thumbs.db
 
 # Test output
 *.log
-native_results.txt
-wasm_results.txt

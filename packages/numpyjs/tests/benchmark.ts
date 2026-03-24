@@ -4,8 +4,8 @@
  * Run in browser via Playwright to get accurate GPU timings.
  */
 
-import { initWasmBackend, createWasmBackend } from './wasm-backend';
 import { initWebGPUBackend, createWebGPUBackend } from './webgpu-backend';
+import { createJsBackend } from './js-backend';
 import type { Backend } from './test-utils';
 
 // Benchmark configuration
@@ -70,7 +70,7 @@ async function benchmarkMatmul(
 
   // GFLOPS: matmul is 2*n^3 FLOPs
   const flops = 2 * size * size * size;
-  const gflops = (flops / (avgMs / 1000)) / 1e9;
+  const gflops = flops / (avgMs / 1000) / 1e9;
 
   return {
     backend: backendName,
@@ -85,8 +85,8 @@ async function benchmarkMatmul(
 }
 
 async function benchmarkTfjs(size: number, backendName: string): Promise<BenchmarkResult | null> {
-  // @ts-ignore - tfjs loaded globally
-  const tf = (window as any).tf;
+  // @ts-expect-error - tfjs loaded globally
+  const tf = (window as unknown as Record<string, unknown>).tf;
   if (!tf) {
     console.log('TensorFlow.js not loaded');
     return null;
@@ -134,7 +134,7 @@ async function benchmarkTfjs(size: number, backendName: string): Promise<Benchma
   const stdMs = Math.sqrt(variance);
 
   const flops = 2 * size * size * size;
-  const gflops = (flops / (avgMs / 1000)) / 1e9;
+  const gflops = flops / (avgMs / 1000) / 1e9;
 
   return {
     backend: `tfjs-${backendName}`,
@@ -153,9 +153,8 @@ export async function runBenchmarks(): Promise<BenchmarkResult[]> {
 
   console.log('Initializing backends...');
 
-  // Initialize rumpy-ts backends
-  await initWasmBackend();
-  const wasmBackend = createWasmBackend();
+  // Initialize backends
+  const jsBackend = createJsBackend();
 
   await initWebGPUBackend();
   const webgpuBackend = createWebGPUBackend();
@@ -165,20 +164,22 @@ export async function runBenchmarks(): Promise<BenchmarkResult[]> {
   for (const size of MATRIX_SIZES) {
     console.log(`\n=== Matrix size: ${size}x${size} ===\n`);
 
-    // rumpy-ts WASM
-    console.log(`  rumpy-ts wasm...`);
-    const wasmResult = await benchmarkMatmul(wasmBackend, 'rumpy-wasm', size);
-    results.push(wasmResult);
-    console.log(`    ${wasmResult.avgMs.toFixed(2)}ms (${wasmResult.gflops?.toFixed(2)} GFLOPS)`);
+    // numpyjs JS (CPU reference)
+    console.log(`  numpyjs js...`);
+    const jsResult = await benchmarkMatmul(jsBackend, 'numpyjs-js', size);
+    results.push(jsResult);
+    console.log(`    ${jsResult.avgMs.toFixed(2)}ms (${jsResult.gflops?.toFixed(2)} GFLOPS)`);
 
-    // rumpy-ts WebGPU (currently CPU impl)
-    console.log(`  rumpy-ts webgpu...`);
-    const webgpuResult = await benchmarkMatmul(webgpuBackend, 'rumpy-webgpu', size);
+    // numpyjs WebGPU
+    console.log(`  numpyjs webgpu...`);
+    const webgpuResult = await benchmarkMatmul(webgpuBackend, 'numpyjs-webgpu', size);
     results.push(webgpuResult);
-    console.log(`    ${webgpuResult.avgMs.toFixed(2)}ms (${webgpuResult.gflops?.toFixed(2)} GFLOPS)`);
+    console.log(
+      `    ${webgpuResult.avgMs.toFixed(2)}ms (${webgpuResult.gflops?.toFixed(2)} GFLOPS)`
+    );
 
-    // TensorFlow.js backends
-    const tfjsBackends = ['cpu', 'webgl', 'wasm'];
+    // TensorFlow.js backends (for comparison)
+    const tfjsBackends = ['cpu', 'webgl', 'webgpu'];
     for (const tfBackend of tfjsBackends) {
       console.log(`  tfjs-${tfBackend}...`);
       const tfResult = await benchmarkTfjs(size, tfBackend);
@@ -209,12 +210,12 @@ export function formatResultsTable(results: BenchmarkResult[]): string {
   for (const size of sizes) {
     lines.push(`${size}x${size} matrices:`);
     lines.push('-'.repeat(60));
-    lines.push(`${'Backend'.padEnd(20)} ${'Avg (ms)'.padStart(10)} ${'Min'.padStart(8)} ${'Max'.padStart(8)} ${'GFLOPS'.padStart(10)}`);
+    lines.push(
+      `${'Backend'.padEnd(20)} ${'Avg (ms)'.padStart(10)} ${'Min'.padStart(8)} ${'Max'.padStart(8)} ${'GFLOPS'.padStart(10)}`
+    );
     lines.push('-'.repeat(60));
 
-    const sizeResults = results
-      .filter(r => r.size === size)
-      .sort((a, b) => a.avgMs - b.avgMs);
+    const sizeResults = results.filter(r => r.size === size).sort((a, b) => a.avgMs - b.avgMs);
 
     for (const r of sizeResults) {
       lines.push(
@@ -228,5 +229,5 @@ export function formatResultsTable(results: BenchmarkResult[]): string {
 }
 
 // Export for use in test runner
-(window as any).runBenchmarks = runBenchmarks;
-(window as any).formatResultsTable = formatResultsTable;
+(window as unknown as Record<string, unknown>).runBenchmarks = runBenchmarks;
+(window as unknown as Record<string, unknown>).formatResultsTable = formatResultsTable;

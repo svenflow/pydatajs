@@ -1,8 +1,7 @@
 /**
  * Main test file - runs all tests against all backends
  *
- * This mirrors the Rust test structure in crates/rumpy-tests/
- * but runs via JavaScript/TypeScript against multiple backends.
+ * Tests are parameterized across JS (CPU) and WebGPU (GPU) backends.
  *
  * Usage:
  *   bun test              # Run all tests
@@ -19,18 +18,17 @@ import { randomTests } from './random.test';
 import { manipulationTests } from './manipulation.test';
 import { phase2Tests } from './phase2.test';
 
-// NOTE: WebGPU backend skips manipulation and phase2 tests due to vitest/playwright
+// NOTE: WebGPU backend skips manipulation tests due to vitest/playwright
 // hanging issues when test count exceeds ~600. The implementations are verified
-// via JS and WASM backends which share the same code.
+// via the JS backend which shares the same code.
 
 // Import backends
 import { createJsBackend } from './js-backend';
-import { initWasmBackend, createWasmBackend } from './wasm-backend';
 import { initWebGPUBackend, createWebGPUBackend } from './webgpu-backend';
 
 // ============ Test Suites ============
 
-describe('rumpy-ts', () => {
+describe('numpyjs', () => {
   // Run tests against pure JS backend (always works)
   describe('js backend', () => {
     let backend: Backend;
@@ -48,40 +46,6 @@ describe('rumpy-ts', () => {
     randomTests(getBackend);
     manipulationTests(getBackend);
     phase2Tests(getBackend);
-  });
-
-  // Run tests against WASM backend (requires wasm-pack build)
-  describe('wasm backend', () => {
-    let backend: Backend;
-
-    beforeAll(async () => {
-      try {
-        await initWasmBackend();
-        backend = createWasmBackend();
-      } catch (e) {
-        console.warn('WASM backend not available:', e);
-      }
-    });
-
-    // Verify WASM backend initialized
-    it('wasm backend available', () => {
-      if (!backend) throw new Error('WASM backend not initialized');
-    });
-
-    const getBackend = () => backend;
-
-    if (typeof process !== 'undefined') {
-      // Skip in Node/Bun where WASM SIMD may not be supported
-      it.skip('wasm tests skipped in Node/Bun', () => {});
-    } else {
-      creationTests(getBackend);
-      mathTests(getBackend);
-      linalgTests(getBackend);
-      statsTests(getBackend);
-      randomTests(getBackend);
-      manipulationTests(getBackend);
-      phase2Tests(getBackend);
-    }
   });
 
   // Run tests against WebGPU backend (requires browser)
@@ -122,7 +86,6 @@ describe('rumpy-ts', () => {
       // KNOWN ISSUE: WebGPU + manipulation tests causes vitest/playwright to hang
       // The hang occurs BEFORE tests run - during test registration when total
       // registered tests exceeds ~850-900. Not a WebGPU bug, but vitest-browser issue.
-      // Verified: JS/WASM run all 305/306 tests including manipulation.
       // manipulationTests(getBackend);
       phase2Tests(getBackend);
     }
