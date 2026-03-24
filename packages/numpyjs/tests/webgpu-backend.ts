@@ -5256,9 +5256,9 @@ const PRESET_CONFIGS: Record<string, string> = {
   '4096x4096x4096': 'TFJS-BCACHE',
   '2048x2048x2048': 'TFJS-BCACHE',
   '1024x1024x1024': 'TFJS-BCACHE',
-  '512x512x512': 'TFJS-BCACHE',
-  '256x256x256': 'TFJS-BCACHE',
-  '128x128x128': 'TFJS-BCACHE',
+  '512x512x512': 'BCACHE-FIT', // FIT wins at 512 (no bounds checking helps)
+  '256x256x256': 'BCACHE-FIT',
+  '128x128x128': 'BCACHE-FIT',
   // Small matrices: simpler shader with lower overhead
   '64x64x64': 'REGISTER-BLOCKED',
 };
