@@ -189,67 +189,131 @@ export class WasmBackend extends BaseBackend {
   }
 
   override sin(arr: NDArray): NDArray {
-    return this._wasmUnary(arr, d => this.wasm.unary_sin(d));
+    return this._wasmUnary(
+      arr,
+      d => this.wasm.unary_sin(d),
+      a => super.sin(a)
+    );
   }
 
   override cos(arr: NDArray): NDArray {
-    return this._wasmUnary(arr, d => this.wasm.unary_cos(d));
+    return this._wasmUnary(
+      arr,
+      d => this.wasm.unary_cos(d),
+      a => super.cos(a)
+    );
   }
 
   override tan(arr: NDArray): NDArray {
-    return this._wasmUnary(arr, d => this.wasm.unary_tan(d));
+    return this._wasmUnary(
+      arr,
+      d => this.wasm.unary_tan(d),
+      a => super.tan(a)
+    );
   }
 
   override arcsin(arr: NDArray): NDArray {
-    return this._wasmUnary(arr, d => this.wasm.unary_asin(d));
+    return this._wasmUnary(
+      arr,
+      d => this.wasm.unary_asin(d),
+      a => super.arcsin(a)
+    );
   }
 
   override arccos(arr: NDArray): NDArray {
-    return this._wasmUnary(arr, d => this.wasm.unary_acos(d));
+    return this._wasmUnary(
+      arr,
+      d => this.wasm.unary_acos(d),
+      a => super.arccos(a)
+    );
   }
 
   override arctan(arr: NDArray): NDArray {
-    return this._wasmUnary(arr, d => this.wasm.unary_atan(d));
+    return this._wasmUnary(
+      arr,
+      d => this.wasm.unary_atan(d),
+      a => super.arctan(a)
+    );
   }
 
   override sinh(arr: NDArray): NDArray {
-    return this._wasmUnary(arr, d => this.wasm.unary_sinh(d));
+    return this._wasmUnary(
+      arr,
+      d => this.wasm.unary_sinh(d),
+      a => super.sinh(a)
+    );
   }
 
   override cosh(arr: NDArray): NDArray {
-    return this._wasmUnary(arr, d => this.wasm.unary_cosh(d));
+    return this._wasmUnary(
+      arr,
+      d => this.wasm.unary_cosh(d),
+      a => super.cosh(a)
+    );
   }
 
   override tanh(arr: NDArray): NDArray {
-    return this._wasmUnary(arr, d => this.wasm.unary_tanh(d));
+    return this._wasmUnary(
+      arr,
+      d => this.wasm.unary_tanh(d),
+      a => super.tanh(a)
+    );
   }
 
   override exp(arr: NDArray): NDArray {
-    return this._wasmUnary(arr, d => this.wasm.unary_exp(d));
+    return this._wasmUnary(
+      arr,
+      d => this.wasm.unary_exp(d),
+      a => super.exp(a)
+    );
   }
 
   override log(arr: NDArray): NDArray {
-    return this._wasmUnary(arr, d => this.wasm.unary_log(d));
+    return this._wasmUnary(
+      arr,
+      d => this.wasm.unary_log(d),
+      a => super.log(a)
+    );
   }
 
   override log2(arr: NDArray): NDArray {
-    return this._wasmUnary(arr, d => this.wasm.unary_log2(d));
+    return this._wasmUnary(
+      arr,
+      d => this.wasm.unary_log2(d),
+      a => super.log2(a)
+    );
   }
 
   override log10(arr: NDArray): NDArray {
-    return this._wasmUnary(arr, d => this.wasm.unary_log10(d));
+    return this._wasmUnary(
+      arr,
+      d => this.wasm.unary_log10(d),
+      a => super.log10(a)
+    );
   }
 
   override sqrt(arr: NDArray): NDArray {
-    return this._wasmUnary(arr, d => this.wasm.unary_sqrt(d));
+    return this._wasmUnary(
+      arr,
+      d => this.wasm.unary_sqrt(d),
+      a => super.sqrt(a)
+    );
   }
 
   override cbrt(arr: NDArray): NDArray {
-    return this._wasmUnary(arr, d => this.wasm.unary_cbrt(d));
+    return this._wasmUnary(
+      arr,
+      d => this.wasm.unary_cbrt(d),
+      a => super.cbrt(a)
+    );
   }
 
   override abs(arr: NDArray): NDArray {
-    return this._wasmUnary(arr, d => this.wasm.unary_abs(d));
+    return this._wasmUnary(
+      arr,
+      d => this.wasm.unary_abs(d),
+      a => super.abs(a)
+    );
   }
 
   override absolute(arr: NDArray): NDArray {
@@ -257,47 +321,87 @@ export class WasmBackend extends BaseBackend {
   }
 
   override ceil(arr: NDArray): NDArray {
-    return this._wasmUnary(arr, d => this.wasm.unary_ceil(d));
+    return this._wasmUnary(
+      arr,
+      d => this.wasm.unary_ceil(d),
+      a => super.ceil(a)
+    );
   }
 
   override floor(arr: NDArray): NDArray {
-    return this._wasmUnary(arr, d => this.wasm.unary_floor(d));
+    return this._wasmUnary(
+      arr,
+      d => this.wasm.unary_floor(d),
+      a => super.floor(a)
+    );
   }
 
   override round(arr: NDArray, decimals: number = 0): NDArray {
     if (decimals === 0) {
-      return this._wasmUnary(arr, d => this.wasm.unary_round(d));
+      return this._wasmUnary(
+        arr,
+        d => this.wasm.unary_round(d),
+        a => super.round(a)
+      );
     }
     // For non-zero decimals, fall back to BaseBackend
     return super.round(arr, decimals);
   }
 
   override sign(arr: NDArray): NDArray {
-    return this._wasmUnary(arr, d => this.wasm.unary_sign(d));
+    return this._wasmUnary(
+      arr,
+      d => this.wasm.unary_sign(d),
+      a => super.sign(a)
+    );
   }
 
   override negative(arr: NDArray): NDArray {
-    return this._wasmUnary(arr, d => this.wasm.unary_negative(d));
+    return this._wasmUnary(
+      arr,
+      d => this.wasm.unary_negative(d),
+      a => super.negative(a)
+    );
   }
 
   override reciprocal(arr: NDArray): NDArray {
-    return this._wasmUnary(arr, d => this.wasm.unary_reciprocal(d));
+    return this._wasmUnary(
+      arr,
+      d => this.wasm.unary_reciprocal(d),
+      a => super.reciprocal(a)
+    );
   }
 
   override square(arr: NDArray): NDArray {
-    return this._wasmUnary(arr, d => this.wasm.unary_square(d));
+    return this._wasmUnary(
+      arr,
+      d => this.wasm.unary_square(d),
+      a => super.square(a)
+    );
   }
 
   override expm1(arr: NDArray): NDArray {
-    return this._wasmUnary(arr, d => this.wasm.unary_expm1(d));
+    return this._wasmUnary(
+      arr,
+      d => this.wasm.unary_expm1(d),
+      a => super.expm1(a)
+    );
   }
 
   override log1p(arr: NDArray): NDArray {
-    return this._wasmUnary(arr, d => this.wasm.unary_log1p(d));
+    return this._wasmUnary(
+      arr,
+      d => this.wasm.unary_log1p(d),
+      a => super.log1p(a)
+    );
   }
 
   override trunc(arr: NDArray): NDArray {
-    return this._wasmUnary(arr, d => this.wasm.unary_trunc(d));
+    return this._wasmUnary(
+      arr,
+      d => this.wasm.unary_trunc(d),
+      a => super.trunc(a)
+    );
   }
 
   override fix(arr: NDArray): NDArray {
@@ -305,15 +409,27 @@ export class WasmBackend extends BaseBackend {
   }
 
   override arcsinh(arr: NDArray): NDArray {
-    return this._wasmUnary(arr, d => this.wasm.unary_asinh(d));
+    return this._wasmUnary(
+      arr,
+      d => this.wasm.unary_asinh(d),
+      a => super.arcsinh(a)
+    );
   }
 
   override arccosh(arr: NDArray): NDArray {
-    return this._wasmUnary(arr, d => this.wasm.unary_acosh(d));
+    return this._wasmUnary(
+      arr,
+      d => this.wasm.unary_acosh(d),
+      a => super.arccosh(a)
+    );
   }
 
   override arctanh(arr: NDArray): NDArray {
-    return this._wasmUnary(arr, d => this.wasm.unary_atanh(d));
+    return this._wasmUnary(
+      arr,
+      d => this.wasm.unary_atanh(d),
+      a => super.arctanh(a)
+    );
   }
 
   // ============ Binary ops (WASM with broadcasting) ============
@@ -342,39 +458,75 @@ export class WasmBackend extends BaseBackend {
   }
 
   override add(a: ArrayOrScalar, b: ArrayOrScalar): NDArray {
-    return this._wasmBinaryOp(a, b, (ad, as_, bd, bs) => this.wasm.binary_add(ad, as_, bd, bs));
+    return this._wasmBinaryOp(
+      a,
+      b,
+      (ad, as_, bd, bs) => this.wasm.binary_add(ad, as_, bd, bs),
+      (x, y) => super.add(x, y)
+    );
   }
 
   override subtract(a: ArrayOrScalar, b: ArrayOrScalar): NDArray {
-    return this._wasmBinaryOp(a, b, (ad, as_, bd, bs) =>
-      this.wasm.binary_subtract(ad, as_, bd, bs)
+    return this._wasmBinaryOp(
+      a,
+      b,
+      (ad, as_, bd, bs) => this.wasm.binary_subtract(ad, as_, bd, bs),
+      (x, y) => super.subtract(x, y)
     );
   }
 
   override multiply(a: ArrayOrScalar, b: ArrayOrScalar): NDArray {
-    return this._wasmBinaryOp(a, b, (ad, as_, bd, bs) =>
-      this.wasm.binary_multiply(ad, as_, bd, bs)
+    return this._wasmBinaryOp(
+      a,
+      b,
+      (ad, as_, bd, bs) => this.wasm.binary_multiply(ad, as_, bd, bs),
+      (x, y) => super.multiply(x, y)
     );
   }
 
   override divide(a: ArrayOrScalar, b: ArrayOrScalar): NDArray {
-    return this._wasmBinaryOp(a, b, (ad, as_, bd, bs) => this.wasm.binary_divide(ad, as_, bd, bs));
+    return this._wasmBinaryOp(
+      a,
+      b,
+      (ad, as_, bd, bs) => this.wasm.binary_divide(ad, as_, bd, bs),
+      (x, y) => super.divide(x, y)
+    );
   }
 
   override power(a: ArrayOrScalar, b: ArrayOrScalar): NDArray {
-    return this._wasmBinaryOp(a, b, (ad, as_, bd, bs) => this.wasm.binary_power(ad, as_, bd, bs));
+    return this._wasmBinaryOp(
+      a,
+      b,
+      (ad, as_, bd, bs) => this.wasm.binary_power(ad, as_, bd, bs),
+      (x, y) => super.power(x, y)
+    );
   }
 
   override maximum(a: ArrayOrScalar, b: ArrayOrScalar): NDArray {
-    return this._wasmBinaryOp(a, b, (ad, as_, bd, bs) => this.wasm.binary_maximum(ad, as_, bd, bs));
+    return this._wasmBinaryOp(
+      a,
+      b,
+      (ad, as_, bd, bs) => this.wasm.binary_maximum(ad, as_, bd, bs),
+      (x, y) => super.maximum(x, y)
+    );
   }
 
   override minimum(a: ArrayOrScalar, b: ArrayOrScalar): NDArray {
-    return this._wasmBinaryOp(a, b, (ad, as_, bd, bs) => this.wasm.binary_minimum(ad, as_, bd, bs));
+    return this._wasmBinaryOp(
+      a,
+      b,
+      (ad, as_, bd, bs) => this.wasm.binary_minimum(ad, as_, bd, bs),
+      (x, y) => super.minimum(x, y)
+    );
   }
 
   override mod(a: ArrayOrScalar, b: ArrayOrScalar): NDArray {
-    return this._wasmBinaryOp(a, b, (ad, as_, bd, bs) => this.wasm.binary_mod(ad, as_, bd, bs));
+    return this._wasmBinaryOp(
+      a,
+      b,
+      (ad, as_, bd, bs) => this.wasm.binary_mod(ad, as_, bd, bs),
+      (x, y) => super.mod(x, y)
+    );
   }
 
   // ============ Reductions (WASM) ============

@@ -23,7 +23,7 @@ export function bankersRound(x: number): number {
   if (!Number.isFinite(x)) return x;
   const floor = Math.floor(x);
   const frac = x - floor;
-  if (Math.abs(frac - 0.5) < Number.EPSILON * Math.max(1, Math.abs(x))) {
+  if (Math.abs(2 * frac - 1) === 0) {
     // Exactly halfway - round to even
     return floor % 2 === 0 ? floor : floor + 1;
   }
@@ -3693,15 +3693,14 @@ export abstract class BaseBackend implements Backend {
       aOffset *= aMatStride;
       bOffset *= bMatStride;
 
-      // Perform matmul for this batch
+      // Perform matmul for this batch (cache-friendly i,p,j loop order)
       const outOffset = batch * matSize;
       for (let i = 0; i < aM; i++) {
-        for (let j = 0; j < bN; j++) {
-          let sum = 0;
-          for (let k = 0; k < aK; k++) {
-            sum += a.data[aOffset + i * aK + k] * b.data[bOffset + k * bN + j];
+        for (let p = 0; p < aK; p++) {
+          const a_ip = a.data[aOffset + i * aK + p];
+          for (let j = 0; j < bN; j++) {
+            result[outOffset + i * bN + j] += a_ip * b.data[bOffset + p * bN + j];
           }
-          result[outOffset + i * bN + j] = sum;
         }
       }
     }
