@@ -81,7 +81,7 @@ export function coverageBoost4Tests(getBackend: () => Backend) {
       it('partition [5,3,1,4,2] kth=2 for larger array', () => {
         const a = arr([5, 3, 1, 4, 2]);
         const result = B.partition(a, 2);
-        // Element at index 2 should be 3 (the median)
+        // The 3rd-smallest value (3) should be at index 2
         expect(result.data[2]).toBe(3);
       });
     });
@@ -203,9 +203,9 @@ export function coverageBoost4Tests(getBackend: () => Backend) {
         // First element is 0, forces pivot swap in first column of LU
         const a = mat([0, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 17], 4, 4);
         const d = B.det(a) as number;
-        // Computed by cofactor expansion: det = -4
+        // Non-zero determinant confirms LU succeeded through pivot swap
         expect(Number.isFinite(d)).toBe(true);
-        expect(Math.abs(d)).toBeGreaterThan(0);
+        expect(Math.abs(d)).toBeGreaterThan(1e-10);
       });
     });
 
