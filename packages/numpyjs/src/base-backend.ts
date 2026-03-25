@@ -50,6 +50,75 @@ export function flattenNestedArray(data: any): { flat: number[]; shape: number[]
   return { flat: flatten(data), shape };
 }
 
+export class BaseNDArray implements NDArray {
+  data: AnyTypedArray;
+  shape: number[];
+  dtype: DType;
+
+  constructor(data: AnyTypedArray | number[], shape: number[], dtype: DType = 'float64') {
+    this.dtype = dtype;
+    if (Array.isArray(data)) {
+      this.data = createTypedArrayFrom(dtype, data);
+    } else {
+      this.data = data;
+    }
+    this.shape = shape;
+  }
+
+  toArray(): number[] {
+    return Array.from(this.data);
+  }
+
+  get ndim(): number {
+    return this.shape.length;
+  }
+
+  get size(): number {
+    return this.shape.reduce((a, b) => a * b, 1);
+  }
+
+  get T(): NDArray {
+    const ndim = this.shape.length;
+    if (ndim <= 1) return this;
+    const perm = [...Array(ndim).keys()].reverse();
+    const newShape = perm.map(i => this.shape[i]!);
+    const size = this.data.length;
+    const data = new Float64Array(size);
+
+    const oldStrides = new Array<number>(ndim);
+    oldStrides[ndim - 1] = 1;
+    for (let i = ndim - 2; i >= 0; i--) {
+      oldStrides[i] = oldStrides[i + 1]! * this.shape[i + 1]!;
+    }
+
+    const newStrides = new Array<number>(ndim);
+    newStrides[ndim - 1] = 1;
+    for (let i = ndim - 2; i >= 0; i--) {
+      newStrides[i] = newStrides[i + 1]! * newShape[i + 1]!;
+    }
+
+    for (let newFlat = 0; newFlat < size; newFlat++) {
+      let remaining = newFlat;
+      let oldFlat = 0;
+      for (let d = 0; d < ndim; d++) {
+        const coord = Math.floor(remaining / newStrides[d]!);
+        remaining -= coord * newStrides[d]!;
+        oldFlat += coord * oldStrides[perm[d]!]!;
+      }
+      data[newFlat] = this.data[oldFlat]!;
+    }
+
+    return new BaseNDArray(data, newShape, this.dtype);
+  }
+
+  item(): number {
+    if (this.data.length !== 1) {
+      throw new Error('can only convert an array of size 1 to a scalar');
+    }
+    return this.data[0]!;
+  }
+}
+
 export abstract class BaseBackend implements Backend {
   abstract name: string;
 
@@ -70,6 +139,25 @@ export abstract class BaseBackend implements Backend {
 
   protected _shapeSize(shape: number[]): number {
     return shape.reduce((a, b) => a * b, 1);
+  }
+
+  /** Create a CPU-resident NDArray (BaseNDArray). Use this in linalg/complex algorithms
+   *  that need synchronous .data access and shouldn't create GPU-backed arrays. */
+  protected _createCpuArray(
+    data: number[] | Float64Array | AnyTypedArray,
+    shape: number[],
+    dtype?: DType
+  ): NDArray {
+    const d = dtype || 'float64';
+    const arr =
+      data instanceof Float64Array ? data : Array.isArray(data) ? new Float64Array(data) : data;
+    return new BaseNDArray(arr, shape, d);
+  }
+
+  /** Convert any NDArray to a CPU-resident BaseNDArray with accessible .data */
+  protected _toCpu(arr: NDArray): NDArray {
+    if (arr instanceof BaseNDArray) return arr;
+    return new BaseNDArray(Float64Array.from(arr.data), [...arr.shape], arr.dtype);
   }
 
   // ============ Creation ============
@@ -2879,7 +2967,52 @@ export abstract class BaseBackend implements Backend {
       s *= outShape[i];
     }
 
-    // Iterate over output elements
+    // Fast path for 2D broadcasting: nested loops avoid per-element division
+    if (ndim === 2) {
+      const d0 = outShape[0],
+        d1 = outShape[1];
+      const aS0 = aStrides[0],
+        aS1 = aStrides[1];
+      const bS0 = bStrides[0],
+        bS1 = bStrides[1];
+      let idx = 0;
+      for (let i = 0; i < d0; i++) {
+        const aBase = i * aS0;
+        const bBase = i * bS0;
+        for (let j = 0; j < d1; j++) {
+          data[idx++] = fn(aData[aBase + j * aS1], bData[bBase + j * bS1]);
+        }
+      }
+      return this.createArray(data, outShape);
+    }
+
+    // Fast path for 3D broadcasting: nested loops avoid per-element division
+    if (ndim === 3) {
+      const d0 = outShape[0],
+        d1 = outShape[1],
+        d2 = outShape[2];
+      const aS0 = aStrides[0],
+        aS1 = aStrides[1],
+        aS2 = aStrides[2];
+      const bS0 = bStrides[0],
+        bS1 = bStrides[1],
+        bS2 = bStrides[2];
+      let idx = 0;
+      for (let i = 0; i < d0; i++) {
+        const aBase0 = i * aS0;
+        const bBase0 = i * bS0;
+        for (let j = 0; j < d1; j++) {
+          const aBase1 = aBase0 + j * aS1;
+          const bBase1 = bBase0 + j * bS1;
+          for (let k = 0; k < d2; k++) {
+            data[idx++] = fn(aData[aBase1 + k * aS2], bData[bBase1 + k * bS2]);
+          }
+        }
+      }
+      return this.createArray(data, outShape);
+    }
+
+    // General N-D path: use coordinate extraction with divisions
     for (let idx = 0; idx < totalSize; idx++) {
       let aIdx = 0,
         bIdx = 0,
@@ -4697,45 +4830,27 @@ export abstract class BaseBackend implements Backend {
     const axisLen = shape[axis];
     const resultShape = shape.filter((_, i) => i !== axis);
     if (resultShape.length === 0) resultShape.push(1);
-    const resultSize = resultShape.reduce((a, b) => a * b, 1);
-    const result = new Float64Array(resultSize);
 
-    // Compute strides for the source array
-    const strides: number[] = new Array(shape.length);
-    strides[shape.length - 1] = 1;
-    for (let i = shape.length - 2; i >= 0; i--) strides[i] = strides[i + 1] * shape[i + 1];
+    // outerSize = product of dims before axis, innerSize = product of dims after axis
+    const outerSize = shape.slice(0, axis).reduce((a, b) => a * b, 1);
+    const innerSize = shape.slice(axis + 1).reduce((a, b) => a * b, 1);
+    const outSize = outerSize * innerSize;
+    const result = new Float64Array(outSize);
+    const srcData = arr.data;
 
-    // Compute strides for the result array
-    const resultStrides: number[] = new Array(resultShape.length);
-    if (resultShape.length > 0) {
-      resultStrides[resultShape.length - 1] = 1;
-      for (let i = resultShape.length - 2; i >= 0; i--)
-        resultStrides[i] = resultStrides[i + 1] * resultShape[i + 1];
-    }
+    // Single reusable slice buffer
+    const slice = new Float64Array(axisLen);
 
-    const sliceVals = new Float64Array(axisLen);
-    for (let ri = 0; ri < resultSize; ri++) {
-      // Convert flat result index to multi-dim coords in result space
-      let tmp = ri;
-      const srcCoords: number[] = new Array(shape.length);
-      let rDim = 0;
-      for (let d = 0; d < shape.length; d++) {
-        if (d === axis) {
-          srcCoords[d] = 0; // will iterate
-        } else {
-          srcCoords[d] = Math.floor(tmp / resultStrides[rDim]);
-          tmp %= resultStrides[rDim];
-          rDim++;
+    for (let outer = 0; outer < outerSize; outer++) {
+      for (let inner = 0; inner < innerSize; inner++) {
+        // Fill slice buffer using direct indexing
+        // Source index = (outer * axisLen + k) * innerSize + inner
+        const base = outer * axisLen * innerSize + inner;
+        for (let k = 0; k < axisLen; k++) {
+          slice[k] = srcData[base + k * innerSize];
         }
+        result[outer * innerSize + inner] = reducer(slice);
       }
-      // Gather values along the axis
-      for (let k = 0; k < axisLen; k++) {
-        srcCoords[axis] = k;
-        let flatIdx = 0;
-        for (let d = 0; d < shape.length; d++) flatIdx += srcCoords[d] * strides[d];
-        sliceVals[k] = arr.data[flatIdx];
-      }
-      result[ri] = reducer(sliceVals);
     }
     return this.createArray(result, resultShape);
   }

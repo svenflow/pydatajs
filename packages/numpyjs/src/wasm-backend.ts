@@ -6,15 +6,8 @@
  * delegating everything else to BaseBackend.
  */
 
-import {
-  NDArray,
-  DType,
-  AnyTypedArray,
-  ArrayOrScalar,
-  SortKind,
-  createTypedArrayFrom,
-} from './types.js';
-import { BaseBackend } from './base-backend.js';
+import { NDArray, DType, AnyTypedArray, ArrayOrScalar, SortKind } from './types.js';
+import { BaseBackend, BaseNDArray } from './base-backend.js';
 
 // Type for the wasm-pack generated module
 interface WasmModule {
@@ -122,77 +115,6 @@ interface WasmModule {
   argsort_f64(data: Float64Array): Uint32Array;
 }
 
-// ============ WasmNDArray ============
-
-class WasmNDArray implements NDArray {
-  data: AnyTypedArray;
-  shape: number[];
-  dtype: DType;
-
-  constructor(data: AnyTypedArray | number[], shape: number[], dtype: DType = 'float64') {
-    this.dtype = dtype;
-    if (Array.isArray(data)) {
-      this.data = createTypedArrayFrom(dtype, data);
-    } else {
-      this.data = data;
-    }
-    this.shape = shape;
-  }
-
-  toArray(): number[] {
-    return Array.from(this.data);
-  }
-
-  get ndim(): number {
-    return this.shape.length;
-  }
-
-  get size(): number {
-    return this.shape.reduce((a, b) => a * b, 1);
-  }
-
-  get T(): NDArray {
-    const ndim = this.shape.length;
-    if (ndim <= 1) return this;
-    const perm = [...Array(ndim).keys()].reverse();
-    const newShape = perm.map(i => this.shape[i]!);
-    const size = this.data.length;
-    const data = new Float64Array(size);
-
-    const oldStrides = new Array<number>(ndim);
-    oldStrides[ndim - 1] = 1;
-    for (let i = ndim - 2; i >= 0; i--) {
-      oldStrides[i] = oldStrides[i + 1]! * this.shape[i + 1]!;
-    }
-
-    const newStrides = new Array<number>(ndim);
-    newStrides[ndim - 1] = 1;
-    for (let i = ndim - 2; i >= 0; i--) {
-      newStrides[i] = newStrides[i + 1]! * newShape[i + 1]!;
-    }
-
-    for (let newFlat = 0; newFlat < size; newFlat++) {
-      let remaining = newFlat;
-      let oldFlat = 0;
-      for (let d = 0; d < ndim; d++) {
-        const coord = Math.floor(remaining / newStrides[d]!);
-        remaining -= coord * newStrides[d]!;
-        oldFlat += coord * oldStrides[perm[d]!]!;
-      }
-      data[newFlat] = this.data[oldFlat]!;
-    }
-
-    return new WasmNDArray(data, newShape, this.dtype);
-  }
-
-  item(): number {
-    if (this.data.length !== 1) {
-      throw new Error('can only convert an array of size 1 to a scalar');
-    }
-    return this.data[0]!;
-  }
-}
-
 // ============ Module-level WASM state ============
 
 let wasmModule: WasmModule | null = null;
@@ -237,12 +159,12 @@ export class WasmBackend extends BaseBackend {
     dtype: DType = 'float64'
   ): NDArray {
     if (data instanceof Float64Array) {
-      return new WasmNDArray(data, shape, dtype);
+      return new BaseNDArray(data, shape, dtype);
     }
     if (ArrayBuffer.isView(data)) {
-      return new WasmNDArray(data as AnyTypedArray, shape, dtype);
+      return new BaseNDArray(data as AnyTypedArray, shape, dtype);
     }
-    return new WasmNDArray(data, shape, dtype);
+    return new BaseNDArray(data, shape, dtype);
   }
 
   // ============ Unary ops (WASM) ============

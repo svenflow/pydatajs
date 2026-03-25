@@ -417,12 +417,22 @@ pub fn reduce_prod(data: &[f64]) -> f64 {
 
 #[wasm_bindgen]
 pub fn reduce_min(data: &[f64]) -> f64 {
-    data.iter().cloned().fold(f64::INFINITY, f64::min)
+    let mut result = f64::INFINITY;
+    for &v in data {
+        if v.is_nan() { return f64::NAN; }
+        if v < result { result = v; }
+    }
+    result
 }
 
 #[wasm_bindgen]
 pub fn reduce_max(data: &[f64]) -> f64 {
-    data.iter().cloned().fold(f64::NEG_INFINITY, f64::max)
+    let mut result = f64::NEG_INFINITY;
+    for &v in data {
+        if v.is_nan() { return f64::NAN; }
+        if v > result { result = v; }
+    }
+    result
 }
 
 #[wasm_bindgen]
@@ -527,7 +537,7 @@ pub fn reduce_min_axis(data: &[f64], shape: &[u32], axis: u32) -> Vec<f64> {
         shape,
         axis as usize,
         f64::INFINITY,
-        f64::min,
+        |a, b| if b.is_nan() { f64::NAN } else if a.is_nan() { f64::NAN } else if b < a { b } else { a },
         |v, _| v,
     )
 }
@@ -539,7 +549,7 @@ pub fn reduce_max_axis(data: &[f64], shape: &[u32], axis: u32) -> Vec<f64> {
         shape,
         axis as usize,
         f64::NEG_INFINITY,
-        f64::max,
+        |a, b| if b.is_nan() { f64::NAN } else if a.is_nan() { f64::NAN } else if b > a { b } else { a },
         |v, _| v,
     )
 }
@@ -583,14 +593,14 @@ pub fn matmul(a: &[f64], m: u32, k: u32, b: &[f64], n: u32) -> Vec<f64> {
 #[wasm_bindgen]
 pub fn sort_f64(data: &[f64]) -> Vec<f64> {
     let mut sorted = data.to_vec();
-    sorted.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+    sorted.sort_unstable_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
     sorted
 }
 
 #[wasm_bindgen]
 pub fn argsort_f64(data: &[f64]) -> Vec<u32> {
     let mut indices: Vec<u32> = (0..data.len() as u32).collect();
-    indices.sort_by(|&a, &b| {
+    indices.sort_unstable_by(|&a, &b| {
         data[a as usize]
             .partial_cmp(&data[b as usize])
             .unwrap_or(std::cmp::Ordering::Equal)
