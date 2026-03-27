@@ -4,8 +4,8 @@
  * Run in browser via Playwright to get accurate GPU timings.
  */
 
-import { initWebGPUBackend, createWebGPUBackend } from './webgpu-backend';
-import { createJsBackend } from './js-backend';
+import { initWebGPUBackend, createWebGPUBackend } from '../src/webgpu-backend';
+import { createJsBackend } from '../src/js-backend';
 import type { Backend } from './test-utils';
 
 // Benchmark configuration

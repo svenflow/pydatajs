@@ -1,0 +1,37 @@
+[package]
+name = "pthreadpool-rs"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "A Rust port of pthreadpool for efficient parallel computation"
+
+[features]
+default = []
+# Enable WASM threading support (requires SharedArrayBuffer + wasm-bindgen-rayon)
+wasm-threads = ["wasm-bindgen", "wasm-bindgen-rayon", "rayon", "js-sys"]
+# Raw futex pool: bypass Rayon, use memory.atomic.wait32/notify directly.
+# Requires SharedArrayBuffer + COOP/COEP headers (same as wasm-threads).
+# Worker spawning goes through wasm_thread (Web Worker glue that presents
+# a std::thread-like API; std::thread::spawn itself panics on wasm32).
+wasm-futex = ["wasm_thread", "wasm-bindgen"]
+
+[dependencies]
+# WASM dependencies (optional)
+wasm-bindgen = { workspace = true, optional = true }
+wasm-bindgen-rayon = { workspace = true, optional = true }
+rayon = { workspace = true, optional = true }
+js-sys = { workspace = true, optional = true }
+# Drop-in std::thread for wasm32 — spawns Web Workers that share memory.
+# Only pulled in with the wasm-futex feature.
+wasm_thread = { version = "0.3", optional = true, default-features = false, features = ["es_modules"] }
+
+[dev-dependencies]
+rand = { workspace = true }
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+# Native threading uses std::thread
+
+[lib]
+crate-type = ["rlib"]

@@ -4,13 +4,7 @@
  */
 
 import { describe, it, expect, beforeAll } from 'vitest';
-import { Backend, DEFAULT_TOL, RELAXED_TOL, approxEq, arraysApproxEq } from './test-utils';
-
-// Helper to get data from arrays (handles GPU materialization)
-async function getData(arr: { toArray(): number[] }, B: Backend): Promise<number[]> {
-  if (B.materializeAll) await B.materializeAll();
-  return arr.toArray();
-}
+import { Backend, DEFAULT_TOL, RELAXED_TOL, approxEq, arraysApproxEq, getData } from './test-utils';
 
 export function phase2Tests(getBackend: () => Backend) {
   describe('phase2', () => {
@@ -24,7 +18,7 @@ export function phase2Tests(getBackend: () => Backend) {
     describe('matrixPower', () => {
       it('computes A^0 = I', async () => {
         const A = B.array([1, 2, 3, 4], [2, 2]);
-        const result = B.matrixPower(A, 0);
+        const result = await B.matrixPower(A, 0);
         expect(result.shape).toEqual([2, 2]);
         // Should be identity matrix
         const data = await getData(result, B);
@@ -36,21 +30,21 @@ export function phase2Tests(getBackend: () => Backend) {
 
       it('computes A^1 = A', async () => {
         const A = B.array([1, 2, 3, 4], [2, 2]);
-        const result = B.matrixPower(A, 1);
+        const result = await B.matrixPower(A, 1);
         expect(arraysApproxEq(await getData(result, B), [1, 2, 3, 4], DEFAULT_TOL)).toBe(true);
       });
 
       it('computes A^2', async () => {
         // [[1, 2], [3, 4]] ^ 2 = [[7, 10], [15, 22]]
         const A = B.array([1, 2, 3, 4], [2, 2]);
-        const result = B.matrixPower(A, 2);
+        const result = await B.matrixPower(A, 2);
         expect(arraysApproxEq(await getData(result, B), [7, 10, 15, 22], DEFAULT_TOL)).toBe(true);
       });
 
       it('computes A^3', async () => {
         // [[1, 2], [3, 4]] ^ 3 = [[37, 54], [81, 118]]
         const A = B.array([1, 2, 3, 4], [2, 2]);
-        const result = B.matrixPower(A, 3);
+        const result = await B.matrixPower(A, 3);
         expect(arraysApproxEq(await getData(result, B), [37, 54, 81, 118], DEFAULT_TOL)).toBe(true);
       });
     });
@@ -87,7 +81,7 @@ export function phase2Tests(getBackend: () => Backend) {
       it('computes sign and log determinant of positive-determinant matrix', async () => {
         // [[4, 7], [2, 6]] has det = 24 - 14 = 10
         const A = B.array([4, 7, 2, 6], [2, 2]);
-        const { sign, logabsdet } = B.slogdet(A);
+        const { sign, logabsdet } = await B.slogdet(A);
         if (B.materializeAll) await B.materializeAll();
         expect(sign).toBe(1);
         expect(approxEq(logabsdet, Math.log(10), RELAXED_TOL)).toBe(true);
@@ -96,7 +90,7 @@ export function phase2Tests(getBackend: () => Backend) {
       it('computes sign and log determinant of negative-determinant matrix', async () => {
         // [[1, 2], [3, 4]] has det = 4 - 6 = -2
         const A = B.array([1, 2, 3, 4], [2, 2]);
-        const { sign, logabsdet } = B.slogdet(A);
+        const { sign, logabsdet } = await B.slogdet(A);
         if (B.materializeAll) await B.materializeAll();
         expect(sign).toBe(-1);
         expect(approxEq(logabsdet, Math.log(2), RELAXED_TOL)).toBe(true);
@@ -104,7 +98,7 @@ export function phase2Tests(getBackend: () => Backend) {
 
       it('computes sign and log determinant of identity', async () => {
         const A = B.eye(3);
-        const { sign, logabsdet } = B.slogdet(A);
+        const { sign, logabsdet } = await B.slogdet(A);
         if (B.materializeAll) await B.materializeAll();
         expect(sign).toBe(1);
         expect(approxEq(logabsdet, 0, RELAXED_TOL)).toBe(true);
@@ -167,8 +161,8 @@ export function phase2Tests(getBackend: () => Backend) {
       });
 
       it('adds polynomials of different degrees', async () => {
-        const a = B.array([1, 2], [2]);  // x + 2
-        const b = B.array([3, 4, 5], [3]);  // 3x^2 + 4x + 5
+        const a = B.array([1, 2], [2]); // x + 2
+        const b = B.array([3, 4, 5], [3]); // 3x^2 + 4x + 5
         const result = B.polyadd(a, b);
         // 0*x^2 + x + 2 + 3x^2 + 4x + 5 = 3x^2 + 5x + 7
         expect(arraysApproxEq(await getData(result, B), [3, 5, 7], DEFAULT_TOL)).toBe(true);
@@ -178,8 +172,8 @@ export function phase2Tests(getBackend: () => Backend) {
     describe('polymul', () => {
       it('multiplies two polynomials', async () => {
         // (x + 1) * (x + 2) = x^2 + 3x + 2
-        const a = B.array([1, 1], [2]);  // x + 1
-        const b = B.array([1, 2], [2]);  // x + 2
+        const a = B.array([1, 1], [2]); // x + 1
+        const b = B.array([1, 2], [2]); // x + 2
         const result = B.polymul(a, b);
         expect(arraysApproxEq(await getData(result, B), [1, 3, 2], DEFAULT_TOL)).toBe(true);
       });
@@ -260,8 +254,8 @@ export function phase2Tests(getBackend: () => Backend) {
         const x = B.array([-1, 3], [2]);
         const result = B.interp(x, xp, fp);
         const data = await getData(result, B);
-        expect(approxEq(data[0], 10, DEFAULT_TOL)).toBe(true);  // Clips to first
-        expect(approxEq(data[1], 30, DEFAULT_TOL)).toBe(true);  // Clips to last
+        expect(approxEq(data[0], 10, DEFAULT_TOL)).toBe(true); // Clips to first
+        expect(approxEq(data[1], 30, DEFAULT_TOL)).toBe(true); // Clips to last
       });
 
       it('returns exact values at knots', async () => {
@@ -338,16 +332,16 @@ export function phase2Tests(getBackend: () => Backend) {
     describe('lexsort', () => {
       it('sorts by multiple keys', async () => {
         // Last key is primary
-        const a = B.array([1, 2, 1, 2], [4]);  // Secondary key
-        const b = B.array([3, 3, 4, 4], [4]);  // Primary key
+        const a = B.array([1, 2, 1, 2], [4]); // Secondary key
+        const b = B.array([3, 3, 4, 4], [4]); // Primary key
         const indices = B.lexsort([a, b]);
         // Should sort by b first (3s before 4s), then by a
         // Expected order: (1,3), (2,3), (1,4), (2,4) -> indices [0, 1, 2, 3]
         const data = await getData(indices, B);
-        expect(data[0]).toBe(0);  // (1, 3)
-        expect(data[1]).toBe(1);  // (2, 3)
-        expect(data[2]).toBe(2);  // (1, 4)
-        expect(data[3]).toBe(3);  // (2, 4)
+        expect(data[0]).toBe(0); // (1, 3)
+        expect(data[1]).toBe(1); // (2, 3)
+        expect(data[2]).toBe(2); // (1, 4)
+        expect(data[3]).toBe(3); // (2, 4)
       });
     });
 
@@ -401,10 +395,10 @@ export function phase2Tests(getBackend: () => Backend) {
     });
 
     describe('select', () => {
-      it('selects from multiple choices based on conditions', () => {
+      it('selects from multiple choices based on conditions', async () => {
         // Use explicit condition arrays instead of comparison functions
         // Conditions: [true, true, false, false, false] and [false, false, true, false, false]
-        const condNeg = B.array([1, 1, 0, 0, 0], [5]);  // x < 0
+        const condNeg = B.array([1, 1, 0, 0, 0], [5]); // x < 0
         const condZero = B.array([0, 0, 1, 0, 0], [5]); // x == 0
 
         // Choices: 100 for negative, 0 for zero
@@ -413,11 +407,12 @@ export function phase2Tests(getBackend: () => Backend) {
 
         const result = B.select([condNeg, condZero], [choiceNeg, choiceZero], -1);
         // Expected: [100, 100, 0, -1, -1]
-        expect(approxEq(result.data[0], 100, DEFAULT_TOL)).toBe(true);
-        expect(approxEq(result.data[1], 100, DEFAULT_TOL)).toBe(true);
-        expect(approxEq(result.data[2], 0, DEFAULT_TOL)).toBe(true);
-        expect(approxEq(result.data[3], -1, DEFAULT_TOL)).toBe(true);
-        expect(approxEq(result.data[4], -1, DEFAULT_TOL)).toBe(true);
+        const data = await getData(result, B);
+        expect(approxEq(data[0], 100, DEFAULT_TOL)).toBe(true);
+        expect(approxEq(data[1], 100, DEFAULT_TOL)).toBe(true);
+        expect(approxEq(data[2], 0, DEFAULT_TOL)).toBe(true);
+        expect(approxEq(data[3], -1, DEFAULT_TOL)).toBe(true);
+        expect(approxEq(data[4], -1, DEFAULT_TOL)).toBe(true);
       });
     });
   });

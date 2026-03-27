@@ -5,7 +5,7 @@
  * GPU operations are inherently async (buffer readback), so this is the native interface.
  */
 
-import { NDArray } from './test-utils';
+import { NDArray } from '../src/types';
 
 /** Async NDArray with getData() method */
 export interface AsyncNDArray {

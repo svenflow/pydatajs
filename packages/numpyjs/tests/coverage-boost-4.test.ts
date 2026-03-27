@@ -273,6 +273,15 @@ export function coverageBoost4Tests(getBackend: () => Backend) {
         expect(Math.abs(vals[0] - 1)).toBeLessThan(1e-6);
         expect(Math.abs(vals[1] - 3)).toBeLessThan(1e-6);
       });
+
+      it('eig on 1x1 matrix hits n<2 shift branch', () => {
+        // 1x1 matrix: eig QR iteration uses shift = A[0] (the n<2 branch)
+        const a = mat([7], 1, 1);
+        const result = B.eig(a);
+        expect(result.values.data.length).toBe(1);
+        expect(Math.abs(result.values.data[0] - 7)).toBeLessThan(1e-10);
+        expect(result.vectors.shape).toEqual([1, 1]);
+      });
     });
 
     // ============================================================

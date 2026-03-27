@@ -1,0 +1,40 @@
+[package]
+name = "rumpy-cpu"
+description = "CPU backend for RumPy using ndarray and faer"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[features]
+default = []
+# Propagate the wasm-futex pool to simd_gemm for the lowest-latency
+# parallel dispatch path. Without this feature, v3 (Rayon-backed atomic
+# dispatch) is the fastest parallel entry point.
+wasm-futex = ["pthreadpool-rs/wasm-futex"]
+
+[dependencies]
+rumpy-core = { path = "../rumpy-core" }
+pthreadpool-rs = { path = "../pthreadpool-rs" }
+ndarray.workspace = true
+faer.workspace = true
+gemm = "0.18"
+rayon.workspace = true
+rand.workspace = true
+rand_distr.workspace = true
+thiserror.workspace = true
+
+[target.'cfg(all(target_arch = "wasm32", target_feature = "atomics"))'.dependencies]
+pthreadpool-rs = { path = "../pthreadpool-rs", features = ["wasm-threads"] }
+
+[dev-dependencies]
+approx.workspace = true
+criterion = "0.5"
+
+[[bench]]
+name = "broadcasting"
+harness = false
+
+[[bench]]
+name = "memory"
+harness = false

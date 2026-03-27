@@ -1,0 +1,784 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>numpyjs — API Documentation</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Source+Serif+4:ital,opsz,wght@0,8..60,400;0,8..60,600;0,8..60,700;1,8..60,400&display=swap" rel="stylesheet">
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+--bg:#0c0c0e;--bg-sidebar:#0a0a0c;--bg-code:#111114;--bg-hover:#16161a;
+--text:#e8e4df;--text-muted:#6b6660;--text-dim:#4a4744;
+--accent:#d4a053;--accent-dim:#8a6a38;
+--green:#7ec87e;--blue:#6ba3d6;--red:#d46b6b;--purple:#b07ed4;
+--border:#1e1e22;--border-strong:#2a2a2e;
+--font-code:'JetBrains Mono',monospace;--font-prose:'Source Serif 4',Georgia,serif;
+}
+html{font-size:15px;scroll-behavior:smooth;scrollbar-color:#2a2a2e #0c0c0e}
+body{background:var(--bg);color:var(--text);font-family:var(--font-code);line-height:1.6;overflow-x:hidden}
+::-webkit-scrollbar{width:8px}
+::-webkit-scrollbar-track{background:var(--bg)}
+::-webkit-scrollbar-thumb{background:#2a2a2e}
+
+/* ── SIDEBAR ── */
+.sidebar{
+position:fixed;top:0;left:0;width:280px;height:100vh;
+background:var(--bg-sidebar);border-right:1px solid var(--border);
+overflow-y:auto;z-index:100;transition:transform .25s ease;
+display:flex;flex-direction:column;
+}
+.sidebar-header{
+padding:24px 20px 16px;border-bottom:2px solid var(--border-strong);
+}
+.sidebar-header h1{
+font-family:var(--font-prose);font-size:1.4rem;font-weight:700;
+color:var(--accent);letter-spacing:-.02em;margin-bottom:2px;
+}
+.sidebar-header .version{font-size:.7rem;color:var(--text-muted);letter-spacing:.1em;text-transform:uppercase}
+.sidebar-nav{flex:1;overflow-y:auto;padding:8px 0}
+.sidebar-cat{border-bottom:1px solid var(--border)}
+.sidebar-cat-btn{
+display:flex;align-items:center;justify-content:space-between;
+width:100%;background:none;border:none;color:var(--text);
+font-family:var(--font-code);font-size:.75rem;
+padding:10px 20px;cursor:pointer;text-align:left;
+transition:background .15s;
+}
+.sidebar-cat-btn:hover{background:var(--bg-hover)}
+.sidebar-cat-btn.active{color:var(--accent)}
+.sidebar-cat-btn .count{
+font-size:.65rem;color:var(--text-muted);background:var(--bg);
+padding:1px 6px;border:1px solid var(--border);
+}
+.sidebar-cat-btn .arrow{
+font-size:.6rem;color:var(--text-muted);transition:transform .2s;
+}
+.sidebar-cat-btn.open .arrow{transform:rotate(90deg)}
+.sidebar-cat-fns{
+display:none;padding:0 20px 8px 28px;
+}
+.sidebar-cat-fns.open{display:block}
+.sidebar-cat-fns a{
+display:block;font-size:.7rem;color:var(--text-muted);
+text-decoration:none;padding:2px 0;transition:color .15s;
+}
+.sidebar-cat-fns a:hover,.sidebar-cat-fns a.active{color:var(--accent)}
+.sidebar-cat-fns a.coming-soon{color:var(--text-dim);font-style:italic}
+
+/* ── HAMBURGER ── */
+.hamburger{
+display:none;position:fixed;top:14px;left:14px;z-index:200;
+background:var(--bg-sidebar);border:1px solid var(--border);
+color:var(--text);font-size:1.2rem;padding:6px 10px;cursor:pointer;
+font-family:var(--font-code);
+}
+.overlay{
+display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:90;
+}
+
+/* ── MAIN ── */
+.main{margin-left:280px;max-width:900px;padding:40px 48px 120px}
+.main-header{border-bottom:3px solid var(--accent);padding-bottom:24px;margin-bottom:40px}
+.main-header h1{
+font-family:var(--font-prose);font-size:2.2rem;font-weight:700;
+color:var(--text);letter-spacing:-.03em;margin-bottom:8px;
+}
+.main-header p{font-family:var(--font-prose);font-size:1rem;color:var(--text-muted);font-style:italic}
+.stats{
+display:flex;gap:32px;margin-top:16px;padding-top:16px;
+border-top:1px solid var(--border);
+}
+.stat{display:flex;flex-direction:column}
+.stat-num{font-size:1.6rem;font-weight:700;color:var(--accent)}
+.stat-label{font-size:.7rem;color:var(--text-muted);text-transform:uppercase;letter-spacing:.08em}
+
+/* ── SEARCH ── */
+.search-wrap{
+position:sticky;top:0;z-index:50;background:var(--bg);
+padding:16px 0 12px;margin-bottom:24px;
+border-bottom:1px solid var(--border);
+}
+.search-input{
+width:100%;background:var(--bg-code);border:1px solid var(--border);
+color:var(--text);font-family:var(--font-code);font-size:.8rem;
+padding:10px 14px 10px 36px;outline:none;transition:border-color .2s;
+}
+.search-input:focus{border-color:var(--accent)}
+.search-input::placeholder{color:var(--text-dim)}
+.search-wrap .search-icon{
+position:absolute;left:12px;top:50%;transform:translateY(-50%);
+color:var(--text-dim);font-size:.85rem;pointer-events:none;
+}
+.search-results-info{
+font-size:.7rem;color:var(--text-muted);margin-top:8px;display:none;
+}
+
+/* ── CATEGORY SECTIONS ── */
+.cat-section{margin-bottom:56px}
+.cat-header{
+position:sticky;top:58px;z-index:40;background:var(--bg);
+padding:12px 0 8px;border-bottom:2px solid var(--border-strong);margin-bottom:20px;
+}
+.cat-header h2{
+font-family:var(--font-prose);font-size:1.4rem;font-weight:600;
+color:var(--text);letter-spacing:-.02em;
+}
+.cat-header .cat-count{
+font-size:.7rem;color:var(--text-muted);margin-left:8px;
+}
+
+/* ── FUNCTION ENTRIES ── */
+.fn-entry{
+padding:16px 0;border-bottom:1px solid var(--border);
+}
+.fn-entry:last-child{border-bottom:none}
+.fn-entry.coming-soon{opacity:.4}
+.fn-name{
+font-family:var(--font-code);font-size:.9rem;font-weight:700;
+color:var(--accent);
+}
+.fn-entry.coming-soon .fn-name{color:var(--text-dim)}
+.fn-badge{
+display:inline-block;font-size:.55rem;text-transform:uppercase;
+letter-spacing:.08em;padding:1px 6px;margin-left:8px;
+vertical-align:middle;
+}
+.fn-badge.implemented{border:1px solid var(--accent-dim);color:var(--accent-dim)}
+.fn-badge.soon{border:1px solid var(--text-dim);color:var(--text-dim)}
+.fn-sig{
+font-family:var(--font-code);font-size:.75rem;color:var(--text-muted);
+margin-top:4px;
+}
+.fn-desc{
+font-family:var(--font-prose);font-size:.85rem;color:var(--text);
+margin-top:6px;line-height:1.5;
+}
+.fn-example{
+background:var(--bg-code);border:1px solid var(--border);
+padding:12px 16px;margin-top:10px;overflow-x:auto;
+font-family:var(--font-code);font-size:.72rem;line-height:1.7;
+}
+.fn-example .kw{color:var(--purple)}
+.fn-example .fn{color:var(--blue)}
+.fn-example .str{color:var(--green)}
+.fn-example .num{color:var(--accent)}
+.fn-example .cmt{color:var(--text-dim);font-style:italic}
+.fn-example .op{color:var(--text-muted)}
+
+/* ── RESPONSIVE ── */
+@media(max-width:800px){
+  .sidebar{transform:translateX(-100%)}
+  .sidebar.open{transform:translateX(0)}
+  .hamburger{display:block}
+  .overlay.open{display:block}
+  .main{margin-left:0;padding:40px 20px 120px}
+  .stats{flex-wrap:wrap;gap:16px}
+}
+</style>
+</head>
+<body>
+
+<button class="hamburger" onclick="toggleSidebar()" aria-label="Menu">&#9776;</button>
+<div class="overlay" onclick="toggleSidebar()"></div>
+
+<aside class="sidebar" id="sidebar">
+  <div class="sidebar-header">
+    <h1>numpyjs</h1>
+    <div class="version">API Reference</div>
+  </div>
+  <nav class="sidebar-nav" id="sidebarNav"></nav>
+</aside>
+
+<main class="main" id="mainContent">
+  <header class="main-header">
+    <h1>numpyjs API Reference</h1>
+    <p>NumPy-compatible numerical computing for JavaScript &amp; TypeScript</p>
+    <div class="stats" id="stats"></div>
+  </header>
+  <div class="search-wrap">
+    <span class="search-icon">&#8981;</span>
+    <input class="search-input" id="search" type="text" placeholder="Search functions..." autocomplete="off" spellcheck="false">
+    <div class="search-results-info" id="searchInfo"></div>
+  </div>
+  <div id="content"></div>
+</main>
+
+<script>
+// ── API DATA ──
+const API = [
+{
+cat: "Array Creation",
+implemented: [
+{ name:"array", sig:'array(data: number[] | number[][], shape?: number[]): NdArray', desc:'Create an ndarray from a JavaScript array or nested array.', ex:'const a = np.array([1, 2, 3, 4]);\nconst m = np.array([[1, 2], [3, 4]]);' },
+{ name:"asarray", sig:'asarray(a: ArrayLike, dtype?: DType): NdArray', desc:'Convert input to an ndarray (no copy if already an ndarray).', ex:'const a = np.asarray([1, 2, 3]);\nconsole.log(a.shape); // [3]' },
+{ name:"astype", sig:'astype(a: NdArray, dtype: DType): NdArray', desc:'Cast an array to a specified data type.', ex:'const a = np.array([1.5, 2.7, 3.1]);\nconst b = np.astype(a, "int32");' },
+{ name:"copy", sig:'copy(a: NdArray): NdArray', desc:'Return a deep copy of the array.', ex:'const a = np.array([1, 2, 3]);\nconst b = np.copy(a);' },
+{ name:"empty", sig:'empty(shape: number[], dtype?: DType): NdArray', desc:'Return a new uninitialized array of given shape.', ex:'const a = np.empty([3, 3]);\nconsole.log(a.shape); // [3, 3]' },
+{ name:"emptyLike", sig:'emptyLike(a: NdArray, dtype?: DType): NdArray', desc:'Return an uninitialized array with the same shape as the input.', ex:'const a = np.array([[1, 2], [3, 4]]);\nconst b = np.emptyLike(a);' },
+{ name:"eye", sig:'eye(N: number, M?: number, k?: number): NdArray', desc:'Return a 2-D identity matrix with ones on the diagonal.', ex:'const I = np.eye(3);\nconsole.log(I.toString());' },
+{ name:"identity", sig:'identity(n: number, dtype?: DType): NdArray', desc:'Return the identity matrix of size n.', ex:'const I = np.identity(4);\nconsole.log(I.shape); // [4, 4]' },
+{ name:"ones", sig:'ones(shape: number[], dtype?: DType): NdArray', desc:'Return a new array filled with ones.', ex:'const a = np.ones([2, 3]);\nconsole.log(a.toString());' },
+{ name:"onesLike", sig:'onesLike(a: NdArray, dtype?: DType): NdArray', desc:'Return an array of ones with the same shape as input.', ex:'const a = np.array([1, 2, 3]);\nconst b = np.onesLike(a);' },
+{ name:"zeros", sig:'zeros(shape: number[], dtype?: DType): NdArray', desc:'Return a new array filled with zeros.', ex:'const a = np.zeros([3, 4]);\nconsole.log(a.shape); // [3, 4]' },
+{ name:"zerosLike", sig:'zerosLike(a: NdArray, dtype?: DType): NdArray', desc:'Return an array of zeros with the same shape as input.', ex:'const a = np.array([[1, 2], [3, 4]]);\nconst b = np.zerosLike(a);' },
+{ name:"full", sig:'full(shape: number[], fillValue: number, dtype?: DType): NdArray', desc:'Return a new array filled with a scalar value.', ex:'const a = np.full([2, 3], 7);\nconsole.log(a.toString());' },
+{ name:"fullLike", sig:'fullLike(a: NdArray, fillValue: number, dtype?: DType): NdArray', desc:'Return a full array with the same shape as input.', ex:'const a = np.array([1, 2, 3]);\nconst b = np.fullLike(a, 42);' },
+{ name:"fromfunction", sig:'fromfunction(fn: (...indices: number[]) => number, shape: number[]): NdArray', desc:'Construct an array by calling a function on each index tuple.', ex:'const a = np.fromfunction((i, j) => i + j, [3, 3]);' },
+{ name:"fromiter", sig:'fromiter(iter: Iterable<number>, dtype?: DType, count?: number): NdArray', desc:'Create an ndarray from an iterable object.', ex:'function* gen() { yield 1; yield 2; yield 3; }\nconst a = np.fromiter(gen());' },
+{ name:"arange", sig:'arange(start: number, stop?: number, step?: number): NdArray', desc:'Return evenly spaced values within a given interval.', ex:'const a = np.arange(0, 10, 2);\nconsole.log(a.tolist()); // [0, 2, 4, 6, 8]' },
+{ name:"linspace", sig:'linspace(start: number, stop: number, num?: number): NdArray', desc:'Return evenly spaced numbers over a specified interval.', ex:'const a = np.linspace(0, 1, 5);\n// [0, 0.25, 0.5, 0.75, 1.0]' },
+{ name:"logspace", sig:'logspace(start: number, stop: number, num?: number, base?: number): NdArray', desc:'Return numbers spaced evenly on a log scale.', ex:'const a = np.logspace(0, 3, 4);\n// [1, 10, 100, 1000]' },
+{ name:"geomspace", sig:'geomspace(start: number, stop: number, num?: number): NdArray', desc:'Return numbers spaced evenly on a geometric (log) scale.', ex:'const a = np.geomspace(1, 1000, 4);\n// [1, 10, 100, 1000]' },
+{ name:"meshgrid", sig:'meshgrid(...xi: NdArray[]): NdArray[]', desc:'Return coordinate matrices from coordinate vectors.', ex:'const [X, Y] = np.meshgrid(\n  np.arange(0, 3), np.arange(0, 2)\n);' },
+{ name:"diag", sig:'diag(v: NdArray, k?: number): NdArray', desc:'Extract a diagonal or construct a diagonal array.', ex:'const a = np.diag([1, 2, 3]);\nconsole.log(a.shape); // [3, 3]' },
+{ name:"diagflat", sig:'diagflat(v: NdArray, k?: number): NdArray', desc:'Create a diagonal array from a flattened input.', ex:'const a = np.diagflat([1, 2, 3]);\nconsole.log(a.shape); // [3, 3]' },
+{ name:"tri", sig:'tri(N: number, M?: number, k?: number): NdArray', desc:'Return an array with ones at and below the diagonal.', ex:'const a = np.tri(3, 3, 0);\nconsole.log(a.toString());' },
+{ name:"tril", sig:'tril(m: NdArray, k?: number): NdArray', desc:'Return lower triangle of an array.', ex:'const a = np.array([[1,2,3],[4,5,6],[7,8,9]]);\nconst b = np.tril(a);' },
+{ name:"triu", sig:'triu(m: NdArray, k?: number): NdArray', desc:'Return upper triangle of an array.', ex:'const a = np.array([[1,2,3],[4,5,6],[7,8,9]]);\nconst b = np.triu(a);' },
+{ name:"vander", sig:'vander(x: NdArray, N?: number, increasing?: boolean): NdArray', desc:'Generate a Vandermonde matrix.', ex:'const a = np.vander([1, 2, 3], 3);\nconsole.log(a.toString());' },
+],
+comingSoon: ["asanyarray","ascontiguousarray","asmatrix","frombuffer","from_dlpack","fromfile","fromstring","loadtxt","mgrid","ogrid","bmat"]
+},
+{
+cat: "Array Manipulation",
+implemented: [
+{ name:"reshape", sig:'reshape(a: NdArray, newShape: number[]): NdArray', desc:'Give a new shape to an array without changing its data.', ex:'const a = np.arange(6);\nconst b = np.reshape(a, [2, 3]);' },
+{ name:"ravel", sig:'ravel(a: NdArray): NdArray', desc:'Return a contiguous flattened array.', ex:'const a = np.array([[1, 2], [3, 4]]);\nconst b = np.ravel(a); // [1, 2, 3, 4]' },
+{ name:"flatten", sig:'flatten(a: NdArray): NdArray', desc:'Return a copy of the array collapsed into one dimension.', ex:'const a = np.array([[1, 2], [3, 4]]);\nconst b = np.flatten(a);' },
+{ name:"moveaxis", sig:'moveaxis(a: NdArray, source: number, dest: number): NdArray', desc:'Move axes of an array to new positions.', ex:'const a = np.zeros([3, 4, 5]);\nconst b = np.moveaxis(a, 0, -1);\nconsole.log(b.shape); // [4, 5, 3]' },
+{ name:"swapaxes", sig:'swapaxes(a: NdArray, axis1: number, axis2: number): NdArray', desc:'Interchange two axes of an array.', ex:'const a = np.zeros([2, 3, 4]);\nconst b = np.swapaxes(a, 0, 2);\nconsole.log(b.shape); // [4, 3, 2]' },
+{ name:"transpose", sig:'transpose(a: NdArray, axes?: number[]): NdArray', desc:'Permute the axes of an array.', ex:'const a = np.array([[1, 2], [3, 4]]);\nconst b = np.transpose(a);' },
+{ name:"atleast1d", sig:'atleast1d(...arys: NdArray[]): NdArray | NdArray[]', desc:'Convert inputs to arrays with at least one dimension.', ex:'const a = np.atleast1d(3.0);\nconsole.log(a.shape); // [1]' },
+{ name:"atleast2d", sig:'atleast2d(...arys: NdArray[]): NdArray | NdArray[]', desc:'Convert inputs to arrays with at least two dimensions.', ex:'const a = np.atleast2d([1, 2, 3]);\nconsole.log(a.shape); // [1, 3]' },
+{ name:"atleast3d", sig:'atleast3d(...arys: NdArray[]): NdArray | NdArray[]', desc:'Convert inputs to arrays with at least three dimensions.', ex:'const a = np.atleast3d([1, 2]);\nconsole.log(a.shape); // [1, 2, 1]' },
+{ name:"broadcastTo", sig:'broadcastTo(a: NdArray, shape: number[]): NdArray', desc:'Broadcast an array to a new shape.', ex:'const a = np.array([1, 2, 3]);\nconst b = np.broadcastTo(a, [3, 3]);' },
+{ name:"broadcastArrays", sig:'broadcastArrays(...args: NdArray[]): NdArray[]', desc:'Broadcast any number of arrays against each other.', ex:'const a = np.array([[1],[2]]);\nconst b = np.array([3, 4]);\nconst [x, y] = np.broadcastArrays(a, b);' },
+{ name:"expandDims", sig:'expandDims(a: NdArray, axis: number): NdArray', desc:'Insert a new axis at the given position.', ex:'const a = np.array([1, 2, 3]);\nconst b = np.expandDims(a, 0);\nconsole.log(b.shape); // [1, 3]' },
+{ name:"squeeze", sig:'squeeze(a: NdArray, axis?: number): NdArray', desc:'Remove axes of length one from an array.', ex:'const a = np.zeros([1, 3, 1]);\nconst b = np.squeeze(a);\nconsole.log(b.shape); // [3]' },
+{ name:"concatenate", sig:'concatenate(arrays: NdArray[], axis?: number): NdArray', desc:'Join a sequence of arrays along an existing axis.', ex:'const a = np.array([1, 2]);\nconst b = np.array([3, 4]);\nconst c = np.concatenate([a, b]);' },
+{ name:"stack", sig:'stack(arrays: NdArray[], axis?: number): NdArray', desc:'Join arrays along a new axis.', ex:'const a = np.array([1, 2]);\nconst b = np.array([3, 4]);\nconst c = np.stack([a, b]);' },
+{ name:"block", sig:'block(arrays: any[]): NdArray', desc:'Assemble arrays from nested lists of blocks.', ex:'const a = np.array([1, 2]);\nconst b = np.array([3, 4]);\nconst c = np.block([a, b]);' },
+{ name:"vstack", sig:'vstack(tup: NdArray[]): NdArray', desc:'Stack arrays vertically (row-wise).', ex:'const a = np.array([1, 2]);\nconst b = np.array([3, 4]);\nconst c = np.vstack([a, b]);' },
+{ name:"hstack", sig:'hstack(tup: NdArray[]): NdArray', desc:'Stack arrays horizontally (column-wise).', ex:'const a = np.array([1, 2]);\nconst b = np.array([3, 4]);\nconst c = np.hstack([a, b]);' },
+{ name:"dstack", sig:'dstack(tup: NdArray[]): NdArray', desc:'Stack arrays depth-wise (along third axis).', ex:'const a = np.array([1, 2]);\nconst b = np.array([3, 4]);\nconst c = np.dstack([a, b]);' },
+{ name:"columnStack", sig:'columnStack(tup: NdArray[]): NdArray', desc:'Stack 1-D arrays as columns into a 2-D array.', ex:'const a = np.array([1, 2, 3]);\nconst b = np.array([4, 5, 6]);\nconst c = np.columnStack([a, b]);' },
+{ name:"split", sig:'split(a: NdArray, indices: number | number[], axis?: number): NdArray[]', desc:'Split an array into multiple sub-arrays.', ex:'const a = np.arange(9);\nconst [x, y, z] = np.split(a, 3);' },
+{ name:"arraySplit", sig:'arraySplit(a: NdArray, indices: number | number[], axis?: number): NdArray[]', desc:'Split an array into multiple sub-arrays of near-equal size.', ex:'const a = np.arange(8);\nconst parts = np.arraySplit(a, 3);' },
+{ name:"dsplit", sig:'dsplit(a: NdArray, indices: number | number[]): NdArray[]', desc:'Split array along the third axis (depth).', ex:'const a = np.arange(16).reshape([2, 2, 4]);\nconst [x, y] = np.dsplit(a, 2);' },
+{ name:"hsplit", sig:'hsplit(a: NdArray, indices: number | number[]): NdArray[]', desc:'Split array along the second axis (horizontally).', ex:'const a = np.arange(6).reshape([2, 3]);\nconst [x, y] = np.hsplit(a, [1]);' },
+{ name:"vsplit", sig:'vsplit(a: NdArray, indices: number | number[]): NdArray[]', desc:'Split array along the first axis (vertically).', ex:'const a = np.arange(6).reshape([3, 2]);\nconst [x, y] = np.vsplit(a, [1]);' },
+{ name:"tile", sig:'tile(A: NdArray, reps: number | number[]): NdArray', desc:'Construct an array by repeating A the given number of times.', ex:'const a = np.array([1, 2, 3]);\nconst b = np.tile(a, 2);\n// [1, 2, 3, 1, 2, 3]' },
+{ name:"repeat", sig:'repeat(a: NdArray, repeats: number, axis?: number): NdArray', desc:'Repeat elements of an array.', ex:'const a = np.array([1, 2, 3]);\nconst b = np.repeat(a, 2);\n// [1, 1, 2, 2, 3, 3]' },
+{ name:"deleteArr", sig:'deleteArr(a: NdArray, obj: number | number[], axis?: number): NdArray', desc:'Delete elements from an array along an axis.', ex:'const a = np.array([1, 2, 3, 4]);\nconst b = np.deleteArr(a, 1);\n// [1, 3, 4]' },
+{ name:"insert", sig:'insert(a: NdArray, obj: number, values: number | NdArray, axis?: number): NdArray', desc:'Insert values along the given axis before the given index.', ex:'const a = np.array([1, 2, 3]);\nconst b = np.insert(a, 1, 99);\n// [1, 99, 2, 3]' },
+{ name:"append", sig:'append(a: NdArray, values: NdArray, axis?: number): NdArray', desc:'Append values to the end of an array.', ex:'const a = np.array([1, 2, 3]);\nconst b = np.append(a, [4, 5]);' },
+{ name:"resize", sig:'resize(a: NdArray, newShape: number[]): NdArray', desc:'Return a new array with the given shape, repeating data if needed.', ex:'const a = np.array([1, 2, 3]);\nconst b = np.resize(a, [2, 3]);' },
+{ name:"unique", sig:'unique(a: NdArray): NdArray', desc:'Return the sorted unique elements of an array.', ex:'const a = np.array([2, 1, 3, 2, 1]);\nconst b = np.unique(a); // [1, 2, 3]' },
+{ name:"pad", sig:'pad(a: NdArray, padWidth: number | number[][], mode?: string): NdArray', desc:'Pad an array with values along each axis.', ex:'const a = np.array([1, 2, 3]);\nconst b = np.pad(a, 2, "constant");' },
+{ name:"flip", sig:'flip(m: NdArray, axis?: number): NdArray', desc:'Reverse the order of elements along the given axis.', ex:'const a = np.array([1, 2, 3]);\nconst b = np.flip(a); // [3, 2, 1]' },
+{ name:"fliplr", sig:'fliplr(m: NdArray): NdArray', desc:'Reverse the order of elements along axis 1 (left/right).', ex:'const a = np.array([[1, 2], [3, 4]]);\nconst b = np.fliplr(a);' },
+{ name:"flipud", sig:'flipud(m: NdArray): NdArray', desc:'Reverse the order of elements along axis 0 (up/down).', ex:'const a = np.array([[1, 2], [3, 4]]);\nconst b = np.flipud(a);' },
+{ name:"roll", sig:'roll(a: NdArray, shift: number, axis?: number): NdArray', desc:'Roll array elements along a given axis.', ex:'const a = np.array([1, 2, 3, 4]);\nconst b = np.roll(a, 2); // [3, 4, 1, 2]' },
+{ name:"rot90", sig:'rot90(m: NdArray, k?: number, axes?: [number, number]): NdArray', desc:'Rotate an array by 90 degrees in the specified plane.', ex:'const a = np.array([[1, 2], [3, 4]]);\nconst b = np.rot90(a);' },
+],
+comingSoon: ["copyto","ndim","shape","size","rollaxis","permute_dims","matrix_transpose","unstack","trim_zeros","asfortranarray"]
+},
+{
+cat: "Math Functions",
+implemented: [
+{ name:"sin", sig:'sin(x: NdArray): NdArray', desc:'Compute the trigonometric sine element-wise.', ex:'const a = np.linspace(0, Math.PI, 5);\nconst b = np.sin(a);' },
+{ name:"cos", sig:'cos(x: NdArray): NdArray', desc:'Compute the trigonometric cosine element-wise.', ex:'const a = np.linspace(0, Math.PI, 5);\nconst b = np.cos(a);' },
+{ name:"tan", sig:'tan(x: NdArray): NdArray', desc:'Compute the trigonometric tangent element-wise.', ex:'const a = np.array([0, Math.PI / 4]);\nconst b = np.tan(a);' },
+{ name:"arcsin", sig:'arcsin(x: NdArray): NdArray', desc:'Inverse sine element-wise.', ex:'const a = np.array([0, 0.5, 1]);\nconst b = np.arcsin(a);' },
+{ name:"arccos", sig:'arccos(x: NdArray): NdArray', desc:'Inverse cosine element-wise.', ex:'const a = np.array([0, 0.5, 1]);\nconst b = np.arccos(a);' },
+{ name:"arctan", sig:'arctan(x: NdArray): NdArray', desc:'Inverse tangent element-wise.', ex:'const a = np.array([0, 1, -1]);\nconst b = np.arctan(a);' },
+{ name:"hypot", sig:'hypot(x1: NdArray, x2: NdArray): NdArray', desc:'Compute the hypotenuse given two sides of a right triangle.', ex:'const a = np.hypot(np.array([3]), np.array([4]));\n// [5]' },
+{ name:"arctan2", sig:'arctan2(x1: NdArray, x2: NdArray): NdArray', desc:'Element-wise arc tangent of x1/x2 choosing the quadrant correctly.', ex:'const a = np.arctan2(\n  np.array([1, -1]), np.array([1, 1])\n);' },
+{ name:"deg2rad", sig:'deg2rad(x: NdArray): NdArray', desc:'Convert angles from degrees to radians.', ex:'const a = np.deg2rad(np.array([180, 90]));\n// [π, π/2]' },
+{ name:"rad2deg", sig:'rad2deg(x: NdArray): NdArray', desc:'Convert angles from radians to degrees.', ex:'const a = np.rad2deg(np.array([Math.PI]));\n// [180]' },
+{ name:"sinh", sig:'sinh(x: NdArray): NdArray', desc:'Hyperbolic sine element-wise.', ex:'const a = np.array([0, 1, 2]);\nconst b = np.sinh(a);' },
+{ name:"cosh", sig:'cosh(x: NdArray): NdArray', desc:'Hyperbolic cosine element-wise.', ex:'const a = np.array([0, 1, 2]);\nconst b = np.cosh(a);' },
+{ name:"tanh", sig:'tanh(x: NdArray): NdArray', desc:'Hyperbolic tangent element-wise.', ex:'const a = np.array([0, 1, 2]);\nconst b = np.tanh(a);' },
+{ name:"arcsinh", sig:'arcsinh(x: NdArray): NdArray', desc:'Inverse hyperbolic sine element-wise.', ex:'const a = np.array([0, 1, 2]);\nconst b = np.arcsinh(a);' },
+{ name:"arccosh", sig:'arccosh(x: NdArray): NdArray', desc:'Inverse hyperbolic cosine element-wise.', ex:'const a = np.array([1, 2, 3]);\nconst b = np.arccosh(a);' },
+{ name:"arctanh", sig:'arctanh(x: NdArray): NdArray', desc:'Inverse hyperbolic tangent element-wise.', ex:'const a = np.array([0, 0.5, -0.5]);\nconst b = np.arctanh(a);' },
+{ name:"round", sig:'round(a: NdArray, decimals?: number): NdArray', desc:'Round to the given number of decimals.', ex:'const a = np.array([1.456, 2.789]);\nconst b = np.round(a, 2); // [1.46, 2.79]' },
+{ name:"around", sig:'around(a: NdArray, decimals?: number): NdArray', desc:'Evenly round to the given number of decimals.', ex:'const a = np.array([0.5, 1.5, 2.5]);\nconst b = np.around(a);' },
+{ name:"rint", sig:'rint(x: NdArray): NdArray', desc:'Round elements to the nearest integer.', ex:'const a = np.array([1.4, 1.5, 2.6]);\nconst b = np.rint(a);' },
+{ name:"fix", sig:'fix(x: NdArray): NdArray', desc:'Round to nearest integer towards zero.', ex:'const a = np.array([2.9, -2.9]);\nconst b = np.fix(a); // [2, -2]' },
+{ name:"floor", sig:'floor(x: NdArray): NdArray', desc:'Return the floor of the input element-wise.', ex:'const a = np.array([1.7, -1.7]);\nconst b = np.floor(a); // [1, -2]' },
+{ name:"ceil", sig:'ceil(x: NdArray): NdArray', desc:'Return the ceiling of the input element-wise.', ex:'const a = np.array([1.2, -1.7]);\nconst b = np.ceil(a); // [2, -1]' },
+{ name:"trunc", sig:'trunc(x: NdArray): NdArray', desc:'Return the truncated value element-wise.', ex:'const a = np.array([1.9, -1.9]);\nconst b = np.trunc(a); // [1, -1]' },
+{ name:"prod", sig:'prod(a: NdArray, axis?: number): NdArray | number', desc:'Return the product of array elements over a given axis.', ex:'const a = np.array([1, 2, 3, 4]);\nconst p = np.prod(a); // 24' },
+{ name:"sum", sig:'sum(a: NdArray, axis?: number): NdArray | number', desc:'Sum of array elements over a given axis.', ex:'const a = np.array([[1, 2], [3, 4]]);\nconst s = np.sum(a); // 10' },
+{ name:"nanprod", sig:'nanprod(a: NdArray, axis?: number): NdArray | number', desc:'Product of elements, treating NaNs as one.', ex:'const a = np.array([1, NaN, 3]);\nconst p = np.nanprod(a); // 3' },
+{ name:"nansum", sig:'nansum(a: NdArray, axis?: number): NdArray | number', desc:'Sum of elements, treating NaNs as zero.', ex:'const a = np.array([1, NaN, 3]);\nconst s = np.nansum(a); // 4' },
+{ name:"cumprod", sig:'cumprod(a: NdArray, axis?: number): NdArray', desc:'Return the cumulative product of elements along a given axis.', ex:'const a = np.array([1, 2, 3, 4]);\nconst b = np.cumprod(a); // [1, 2, 6, 24]' },
+{ name:"cumsum", sig:'cumsum(a: NdArray, axis?: number): NdArray', desc:'Return the cumulative sum of elements along a given axis.', ex:'const a = np.array([1, 2, 3, 4]);\nconst b = np.cumsum(a); // [1, 3, 6, 10]' },
+{ name:"nancumprod", sig:'nancumprod(a: NdArray, axis?: number): NdArray', desc:'Cumulative product treating NaNs as one.', ex:'const a = np.array([1, NaN, 3]);\nconst b = np.nancumprod(a); // [1, 1, 3]' },
+{ name:"nancumsum", sig:'nancumsum(a: NdArray, axis?: number): NdArray', desc:'Cumulative sum treating NaNs as zero.', ex:'const a = np.array([1, NaN, 3]);\nconst b = np.nancumsum(a); // [1, 1, 4]' },
+{ name:"diff", sig:'diff(a: NdArray, n?: number, axis?: number): NdArray', desc:'Calculate the n-th discrete difference along the given axis.', ex:'const a = np.array([1, 3, 6, 10]);\nconst b = np.diff(a); // [2, 3, 4]' },
+{ name:"ediff1d", sig:'ediff1d(a: NdArray): NdArray', desc:'Compute differences between consecutive elements of a flattened array.', ex:'const a = np.array([1, 3, 6]);\nconst b = np.ediff1d(a); // [2, 3]' },
+{ name:"gradient", sig:'gradient(f: NdArray, ...varargs: number[]): NdArray | NdArray[]', desc:'Return the gradient of an N-dimensional array.', ex:'const a = np.array([1, 2, 4, 7, 11]);\nconst g = np.gradient(a);' },
+{ name:"cross", sig:'cross(a: NdArray, b: NdArray): NdArray', desc:'Compute the cross product of two 3-element vectors.', ex:'const a = np.array([1, 0, 0]);\nconst b = np.array([0, 1, 0]);\nconst c = np.cross(a, b); // [0, 0, 1]' },
+{ name:"trapezoid", sig:'trapezoid(y: NdArray, x?: NdArray, dx?: number): number', desc:'Integrate using the composite trapezoidal rule.', ex:'const y = np.array([1, 2, 3]);\nconst area = np.trapezoid(y); // 4.0' },
+{ name:"exp", sig:'exp(x: NdArray): NdArray', desc:'Calculate the exponential of all elements.', ex:'const a = np.array([0, 1, 2]);\nconst b = np.exp(a);' },
+{ name:"expm1", sig:'expm1(x: NdArray): NdArray', desc:'Calculate exp(x) - 1 for all elements.', ex:'const a = np.array([1e-10, 0, 1]);\nconst b = np.expm1(a);' },
+{ name:"log", sig:'log(x: NdArray): NdArray', desc:'Natural logarithm element-wise.', ex:'const a = np.array([1, Math.E, Math.E ** 2]);\nconst b = np.log(a); // [0, 1, 2]' },
+{ name:"log10", sig:'log10(x: NdArray): NdArray', desc:'Base-10 logarithm element-wise.', ex:'const a = np.array([1, 10, 100]);\nconst b = np.log10(a); // [0, 1, 2]' },
+{ name:"log2", sig:'log2(x: NdArray): NdArray', desc:'Base-2 logarithm element-wise.', ex:'const a = np.array([1, 2, 4, 8]);\nconst b = np.log2(a); // [0, 1, 2, 3]' },
+{ name:"log1p", sig:'log1p(x: NdArray): NdArray', desc:'Natural logarithm of (1 + x) element-wise.', ex:'const a = np.array([0, 1e-10, 1]);\nconst b = np.log1p(a);' },
+{ name:"logaddexp", sig:'logaddexp(x1: NdArray, x2: NdArray): NdArray', desc:'Logarithm of the sum of exponentials of the inputs.', ex:'const a = np.logaddexp(\n  np.array([1, 2]), np.array([3, 4])\n);' },
+{ name:"logaddexp2", sig:'logaddexp2(x1: NdArray, x2: NdArray): NdArray', desc:'Logarithm base 2 of the sum of exponentials base 2.', ex:'const a = np.logaddexp2(\n  np.array([1, 2]), np.array([3, 4])\n);' },
+{ name:"sinc", sig:'sinc(x: NdArray): NdArray', desc:'Return the normalized sinc function.', ex:'const a = np.linspace(-3, 3, 7);\nconst b = np.sinc(a);' },
+{ name:"signbit", sig:'signbit(x: NdArray): NdArray', desc:'Returns element-wise true where signbit is set (less than zero).', ex:'const a = np.array([-1, 0, 1]);\nconst b = np.signbit(a);' },
+{ name:"copysign", sig:'copysign(x1: NdArray, x2: NdArray): NdArray', desc:'Change the sign of x1 to that of x2 element-wise.', ex:'const a = np.copysign(\n  np.array([1, -1, 1]), np.array([-1, 1, -1])\n);' },
+{ name:"frexp", sig:'frexp(x: NdArray): [NdArray, NdArray]', desc:'Decompose elements into mantissa and exponent.', ex:'const [m, e] = np.frexp(np.array([1, 2, 4]));\n// m: [0.5, 0.5, 0.5], e: [1, 2, 3]' },
+{ name:"ldexp", sig:'ldexp(x1: NdArray, x2: NdArray): NdArray', desc:'Returns x1 * 2**x2 element-wise.', ex:'const a = np.ldexp(\n  np.array([1, 2]), np.array([3, 2])\n); // [8, 8]' },
+{ name:"nextafter", sig:'nextafter(x1: NdArray, x2: NdArray): NdArray', desc:'Return next floating-point value after x1 towards x2.', ex:'const a = np.nextafter(\n  np.array([1.0]), np.array([2.0])\n);' },
+{ name:"lcm", sig:'lcm(x1: NdArray, x2: NdArray): NdArray', desc:'Returns the lowest common multiple element-wise.', ex:'const a = np.lcm(\n  np.array([4, 6]), np.array([6, 12])\n); // [12, 12]' },
+{ name:"gcd", sig:'gcd(x1: NdArray, x2: NdArray): NdArray', desc:'Returns the greatest common divisor element-wise.', ex:'const a = np.gcd(\n  np.array([12, 18]), np.array([8, 24])\n); // [4, 6]' },
+{ name:"add", sig:'add(x1: NdArray, x2: NdArray): NdArray', desc:'Add arguments element-wise.', ex:'const a = np.add(\n  np.array([1, 2]), np.array([3, 4])\n); // [4, 6]' },
+{ name:"reciprocal", sig:'reciprocal(x: NdArray): NdArray', desc:'Return the reciprocal of the argument element-wise.', ex:'const a = np.reciprocal(np.array([1, 2, 4]));\n// [1, 0.5, 0.25]' },
+{ name:"negative", sig:'negative(x: NdArray): NdArray', desc:'Numerical negative element-wise.', ex:'const a = np.negative(np.array([1, -2, 3]));\n// [-1, 2, -3]' },
+{ name:"multiply", sig:'multiply(x1: NdArray, x2: NdArray): NdArray', desc:'Multiply arguments element-wise.', ex:'const a = np.multiply(\n  np.array([1, 2, 3]), np.array([4, 5, 6])\n);' },
+{ name:"divide", sig:'divide(x1: NdArray, x2: NdArray): NdArray', desc:'Divide arguments element-wise.', ex:'const a = np.divide(\n  np.array([10, 20]), np.array([2, 5])\n); // [5, 4]' },
+{ name:"power", sig:'power(x1: NdArray, x2: NdArray): NdArray', desc:'First array elements raised to powers from second array.', ex:'const a = np.power(\n  np.array([2, 3]), np.array([3, 2])\n); // [8, 9]' },
+{ name:"subtract", sig:'subtract(x1: NdArray, x2: NdArray): NdArray', desc:'Subtract arguments element-wise.', ex:'const a = np.subtract(\n  np.array([5, 10]), np.array([1, 3])\n); // [4, 7]' },
+{ name:"floorDivide", sig:'floorDivide(x1: NdArray, x2: NdArray): NdArray', desc:'Return the largest integer smaller or equal to the division.', ex:'const a = np.floorDivide(\n  np.array([7, 8]), np.array([3, 3])\n); // [2, 2]' },
+{ name:"fmod", sig:'fmod(x1: NdArray, x2: NdArray): NdArray', desc:'Return element-wise remainder of division.', ex:'const a = np.fmod(\n  np.array([7, -7]), np.array([3, 3])\n); // [1, -1]' },
+{ name:"mod", sig:'mod(x1: NdArray, x2: NdArray): NdArray', desc:'Return element-wise remainder of division (modulo).', ex:'const a = np.mod(\n  np.array([7, -7]), np.array([3, 3])\n); // [1, 2]' },
+{ name:"modf", sig:'modf(x: NdArray): [NdArray, NdArray]', desc:'Return the fractional and integral parts element-wise.', ex:'const [frac, intg] = np.modf(np.array([1.5, 2.7]));\n// frac: [0.5, 0.7], intg: [1, 2]' },
+{ name:"remainder", sig:'remainder(x1: NdArray, x2: NdArray): NdArray', desc:'Return element-wise remainder of division.', ex:'const a = np.remainder(\n  np.array([7, -7]), np.array([3, 3])\n);' },
+{ name:"divmod", sig:'divmod(x1: NdArray, x2: NdArray): [NdArray, NdArray]', desc:'Return element-wise quotient and remainder simultaneously.', ex:'const [q, r] = np.divmod(\n  np.array([7, 8]), np.array([3, 3])\n);' },
+{ name:"maximum", sig:'maximum(x1: NdArray, x2: NdArray): NdArray', desc:'Element-wise maximum of array elements.', ex:'const a = np.maximum(\n  np.array([1, 5, 3]), np.array([4, 2, 6])\n); // [4, 5, 6]' },
+{ name:"fmax", sig:'fmax(x1: NdArray, x2: NdArray): NdArray', desc:'Element-wise maximum, ignoring NaNs.', ex:'const a = np.fmax(\n  np.array([1, NaN, 3]), np.array([NaN, 2, NaN])\n);' },
+{ name:"nanmax", sig:'nanmax(a: NdArray, axis?: number): NdArray | number', desc:'Return the maximum ignoring NaN values.', ex:'const a = np.array([1, NaN, 3]);\nconst m = np.nanmax(a); // 3' },
+{ name:"minimum", sig:'minimum(x1: NdArray, x2: NdArray): NdArray', desc:'Element-wise minimum of array elements.', ex:'const a = np.minimum(\n  np.array([1, 5, 3]), np.array([4, 2, 6])\n); // [1, 2, 3]' },
+{ name:"fmin", sig:'fmin(x1: NdArray, x2: NdArray): NdArray', desc:'Element-wise minimum, ignoring NaNs.', ex:'const a = np.fmin(\n  np.array([1, NaN, 3]), np.array([NaN, 2, NaN])\n);' },
+{ name:"nanmin", sig:'nanmin(a: NdArray, axis?: number): NdArray | number', desc:'Return the minimum ignoring NaN values.', ex:'const a = np.array([NaN, 2, 3]);\nconst m = np.nanmin(a); // 2' },
+{ name:"convolve", sig:'convolve(a: NdArray, v: NdArray, mode?: string): NdArray', desc:'Returns the discrete, linear convolution of two sequences.', ex:'const a = np.convolve(\n  np.array([1, 2, 3]), np.array([0, 1, 0.5])\n);' },
+{ name:"clip", sig:'clip(a: NdArray, aMin: number, aMax: number): NdArray', desc:'Clip (limit) the values in an array to a given range.', ex:'const a = np.array([1, 5, 10, 15]);\nconst b = np.clip(a, 3, 12); // [3, 5, 10, 12]' },
+{ name:"sqrt", sig:'sqrt(x: NdArray): NdArray', desc:'Return the non-negative square root element-wise.', ex:'const a = np.array([1, 4, 9, 16]);\nconst b = np.sqrt(a); // [1, 2, 3, 4]' },
+{ name:"cbrt", sig:'cbrt(x: NdArray): NdArray', desc:'Return the cube root element-wise.', ex:'const a = np.array([1, 8, 27]);\nconst b = np.cbrt(a); // [1, 2, 3]' },
+{ name:"square", sig:'square(x: NdArray): NdArray', desc:'Return the element-wise square of the input.', ex:'const a = np.array([1, 2, 3]);\nconst b = np.square(a); // [1, 4, 9]' },
+{ name:"absolute", sig:'absolute(x: NdArray): NdArray', desc:'Calculate the absolute value element-wise.', ex:'const a = np.array([-1, 2, -3]);\nconst b = np.absolute(a); // [1, 2, 3]' },
+{ name:"sign", sig:'sign(x: NdArray): NdArray', desc:'Returns an element-wise indication of the sign of a number.', ex:'const a = np.array([-5, 0, 3]);\nconst b = np.sign(a); // [-1, 0, 1]' },
+{ name:"heaviside", sig:'heaviside(x1: NdArray, x2: NdArray): NdArray', desc:'Compute the Heaviside step function.', ex:'const a = np.heaviside(\n  np.array([-1, 0, 1]), np.array([0.5, 0.5, 0.5])\n);' },
+{ name:"nanToNum", sig:'nanToNum(x: NdArray, nan?: number, posinf?: number, neginf?: number): NdArray', desc:'Replace NaN with zero and infinity with large finite numbers.', ex:'const a = np.array([NaN, Infinity, -Infinity, 1]);\nconst b = np.nanToNum(a);' },
+{ name:"interp", sig:'interp(x: NdArray, xp: NdArray, fp: NdArray): NdArray', desc:'One-dimensional linear interpolation.', ex:'const y = np.interp(\n  np.array([1.5]), np.array([1, 2]), np.array([10, 20])\n); // [15]' },
+{ name:"real", sig:'real(val: NdArray): NdArray', desc:'Return the real part of the complex argument.', ex:'const a = np.array([1, 2, 3]);\nconst b = np.real(a);' },
+{ name:"imag", sig:'imag(val: NdArray): NdArray', desc:'Return the imaginary part of the complex argument.', ex:'const a = np.array([1, 2, 3]);\nconst b = np.imag(a);' },
+{ name:"conj", sig:'conj(x: NdArray): NdArray', desc:'Return the complex conjugate element-wise.', ex:'const a = np.array([1, 2, 3]);\nconst b = np.conj(a);' },
+],
+comingSoon: ["exp2","degrees","radians","unwrap","i0","spacing","positive","true_divide","float_power","angle","real_if_close","asin","acos","atan","atan2"]
+},
+{
+cat: "Linear Algebra",
+implemented: [
+{ name:"dot", sig:'dot(a: NdArray, b: NdArray): NdArray | number', desc:'Compute the dot product of two arrays.', ex:'const a = np.array([1, 2, 3]);\nconst b = np.array([4, 5, 6]);\nconst d = np.dot(a, b); // 32' },
+{ name:"multiDot", sig:'multiDot(arrays: NdArray[]): NdArray', desc:'Compute the dot product of two or more arrays in a single call.', ex:'const a = np.ones([2, 3]);\nconst b = np.ones([3, 4]);\nconst c = np.multiDot([a, b]);' },
+{ name:"vdot", sig:'vdot(a: NdArray, b: NdArray): number', desc:'Return the dot product of two vectors (flattened).', ex:'const a = np.array([1, 2, 3]);\nconst b = np.array([4, 5, 6]);\nconst v = np.vdot(a, b); // 32' },
+{ name:"inner", sig:'inner(a: NdArray, b: NdArray): NdArray | number', desc:'Inner product of two arrays.', ex:'const a = np.array([1, 2, 3]);\nconst b = np.array([0, 1, 0]);\nconst v = np.inner(a, b); // 2' },
+{ name:"outer", sig:'outer(a: NdArray, b: NdArray): NdArray', desc:'Compute the outer product of two vectors.', ex:'const a = np.array([1, 2, 3]);\nconst b = np.array([4, 5]);\nconst c = np.outer(a, b);' },
+{ name:"matmul", sig:'matmul(a: NdArray, b: NdArray): NdArray', desc:'Matrix product of two arrays.', ex:'const a = np.array([[1, 2], [3, 4]]);\nconst b = np.array([[5, 6], [7, 8]]);\nconst c = np.matmul(a, b);' },
+{ name:"tensordot", sig:'tensordot(a: NdArray, b: NdArray, axes?: number | [number[], number[]]): NdArray', desc:'Compute tensor dot product along specified axes.', ex:'const a = np.arange(12).reshape([3, 4]);\nconst b = np.arange(12).reshape([4, 3]);\nconst c = np.tensordot(a, b);' },
+{ name:"einsum", sig:'einsum(subscripts: string, ...operands: NdArray[]): NdArray', desc:'Evaluate an Einstein summation convention on the operands.', ex:'const a = np.array([[1, 2], [3, 4]]);\nconst tr = np.einsum("ii", a); // trace = 5' },
+{ name:"matrixPower", sig:'matrixPower(M: NdArray, n: number): NdArray', desc:'Raise a square matrix to the (integer) power n.', ex:'const a = np.array([[1, 2], [3, 4]]);\nconst b = np.matrixPower(a, 2);' },
+{ name:"kron", sig:'kron(a: NdArray, b: NdArray): NdArray', desc:'Compute the Kronecker product of two arrays.', ex:'const a = np.eye(2);\nconst b = np.ones([2, 2]);\nconst c = np.kron(a, b);' },
+{ name:"cholesky", sig:'cholesky(a: NdArray): NdArray', desc:'Compute the Cholesky decomposition.', ex:'const a = np.array([[4, 2], [2, 3]]);\nconst L = np.cholesky(a);' },
+{ name:"qr", sig:'qr(a: NdArray): [NdArray, NdArray]', desc:'Compute the QR factorization of a matrix.', ex:'const a = np.array([[1, 2], [3, 4]]);\nconst [Q, R] = np.qr(a);' },
+{ name:"svd", sig:'svd(a: NdArray, fullMatrices?: boolean): [NdArray, NdArray, NdArray]', desc:'Compute the singular value decomposition.', ex:'const a = np.array([[1, 2], [3, 4]]);\nconst [U, S, Vt] = np.svd(a);' },
+{ name:"eig", sig:'eig(a: NdArray): [NdArray, NdArray]', desc:'Compute the eigenvalues and right eigenvectors.', ex:'const a = np.array([[1, 2], [3, 4]]);\nconst [vals, vecs] = np.eig(a);' },
+{ name:"eigh", sig:'eigh(a: NdArray): [NdArray, NdArray]', desc:'Eigenvalues and eigenvectors of a symmetric matrix.', ex:'const a = np.array([[1, 2], [2, 1]]);\nconst [vals, vecs] = np.eigh(a);' },
+{ name:"eigvals", sig:'eigvals(a: NdArray): NdArray', desc:'Compute the eigenvalues of a general matrix.', ex:'const a = np.array([[1, 2], [3, 4]]);\nconst w = np.eigvals(a);' },
+{ name:"eigvalsh", sig:'eigvalsh(a: NdArray): NdArray', desc:'Compute the eigenvalues of a symmetric matrix.', ex:'const a = np.array([[1, 2], [2, 1]]);\nconst w = np.eigvalsh(a);' },
+{ name:"norm", sig:'norm(x: NdArray, ord?: number | string, axis?: number): NdArray | number', desc:'Compute a matrix or vector norm.', ex:'const a = np.array([3, 4]);\nconst n = np.norm(a); // 5' },
+{ name:"cond", sig:'cond(x: NdArray, p?: number | string): number', desc:'Compute the condition number of a matrix.', ex:'const a = np.array([[1, 0], [0, 1]]);\nconst c = np.cond(a); // 1' },
+{ name:"det", sig:'det(a: NdArray): number', desc:'Compute the determinant of a matrix.', ex:'const a = np.array([[1, 2], [3, 4]]);\nconst d = np.det(a); // -2' },
+{ name:"matrixRank", sig:'matrixRank(M: NdArray, tol?: number): number', desc:'Return the matrix rank using SVD method.', ex:'const a = np.array([[1, 2], [2, 4]]);\nconst r = np.matrixRank(a); // 1' },
+{ name:"slogdet", sig:'slogdet(a: NdArray): [number, number]', desc:'Compute sign and natural log of the determinant.', ex:'const a = np.array([[1, 2], [3, 4]]);\nconst [sign, logdet] = np.slogdet(a);' },
+{ name:"trace", sig:'trace(a: NdArray, offset?: number): number', desc:'Return the sum along the diagonals.', ex:'const a = np.array([[1, 2], [3, 4]]);\nconst t = np.trace(a); // 5' },
+{ name:"solve", sig:'solve(a: NdArray, b: NdArray): NdArray', desc:'Solve a linear matrix equation Ax = b.', ex:'const A = np.array([[3, 1], [1, 2]]);\nconst b = np.array([9, 8]);\nconst x = np.solve(A, b);' },
+{ name:"lstsq", sig:'lstsq(a: NdArray, b: NdArray): [NdArray, NdArray, number, NdArray]', desc:'Return the least-squares solution to a linear equation.', ex:'const A = np.array([[1, 1], [1, 2], [1, 3]]);\nconst b = np.array([1, 2, 2]);\nconst [x] = np.lstsq(A, b);' },
+{ name:"inv", sig:'inv(a: NdArray): NdArray', desc:'Compute the (multiplicative) inverse of a matrix.', ex:'const a = np.array([[1, 2], [3, 4]]);\nconst b = np.inv(a);' },
+{ name:"pinv", sig:'pinv(a: NdArray, rcond?: number): NdArray', desc:'Compute the Moore-Penrose pseudo-inverse of a matrix.', ex:'const a = np.array([[1, 2], [3, 4], [5, 6]]);\nconst b = np.pinv(a);' },
+],
+comingSoon: ["vecdot","matvec","vecmat","einsum_path","svdvals","matrix_norm","vector_norm","tensorsolve","tensorinv"]
+},
+{
+cat: "Statistics",
+implemented: [
+{ name:"ptp", sig:'ptp(a: NdArray, axis?: number): NdArray | number', desc:'Range of values (peak to peak) along an axis.', ex:'const a = np.array([1, 5, 3, 9]);\nconst r = np.ptp(a); // 8' },
+{ name:"percentile", sig:'percentile(a: NdArray, q: number, axis?: number): NdArray | number', desc:'Compute the q-th percentile of the data.', ex:'const a = np.array([1, 2, 3, 4, 100]);\nconst p = np.percentile(a, 50); // 3' },
+{ name:"nanpercentile", sig:'nanpercentile(a: NdArray, q: number, axis?: number): NdArray | number', desc:'Compute the q-th percentile ignoring NaN values.', ex:'const a = np.array([1, NaN, 3, 4]);\nconst p = np.nanpercentile(a, 50);' },
+{ name:"quantile", sig:'quantile(a: NdArray, q: number, axis?: number): NdArray | number', desc:'Compute the q-th quantile of the data.', ex:'const a = np.arange(10);\nconst q = np.quantile(a, 0.5);' },
+{ name:"nanquantile", sig:'nanquantile(a: NdArray, q: number, axis?: number): NdArray | number', desc:'Compute the q-th quantile ignoring NaN values.', ex:'const a = np.array([1, NaN, 3]);\nconst q = np.nanquantile(a, 0.5);' },
+{ name:"median", sig:'median(a: NdArray, axis?: number): NdArray | number', desc:'Compute the median along the specified axis.', ex:'const a = np.array([3, 1, 2]);\nconst m = np.median(a); // 2' },
+{ name:"average", sig:'average(a: NdArray, axis?: number, weights?: NdArray): NdArray | number', desc:'Compute the weighted average along the specified axis.', ex:'const a = np.array([1, 2, 3, 4]);\nconst w = np.array([4, 3, 2, 1]);\nconst avg = np.average(a, undefined, w);' },
+{ name:"mean", sig:'mean(a: NdArray, axis?: number): NdArray | number', desc:'Compute the arithmetic mean along the specified axis.', ex:'const a = np.array([1, 2, 3, 4]);\nconst m = np.mean(a); // 2.5' },
+{ name:"std", sig:'std(a: NdArray, axis?: number, ddof?: number): NdArray | number', desc:'Compute the standard deviation along the specified axis.', ex:'const a = np.array([1, 2, 3, 4]);\nconst s = np.std(a);' },
+{ name:"var", sig:'var(a: NdArray, axis?: number, ddof?: number): NdArray | number', desc:'Compute the variance along the specified axis.', ex:'const a = np.array([1, 2, 3, 4]);\nconst v = np.var(a);' },
+{ name:"nanmedian", sig:'nanmedian(a: NdArray, axis?: number): NdArray | number', desc:'Compute the median ignoring NaN values.', ex:'const a = np.array([1, NaN, 3]);\nconst m = np.nanmedian(a); // 2' },
+{ name:"nanmean", sig:'nanmean(a: NdArray, axis?: number): NdArray | number', desc:'Compute the mean ignoring NaN values.', ex:'const a = np.array([1, NaN, 3]);\nconst m = np.nanmean(a); // 2' },
+{ name:"nanstd", sig:'nanstd(a: NdArray, axis?: number, ddof?: number): NdArray | number', desc:'Compute the standard deviation ignoring NaN values.', ex:'const a = np.array([1, NaN, 3]);\nconst s = np.nanstd(a);' },
+{ name:"nanvar", sig:'nanvar(a: NdArray, axis?: number, ddof?: number): NdArray | number', desc:'Compute the variance ignoring NaN values.', ex:'const a = np.array([1, NaN, 3]);\nconst v = np.nanvar(a);' },
+{ name:"corrcoef", sig:'corrcoef(x: NdArray, y?: NdArray): NdArray', desc:'Return Pearson product-moment correlation coefficients.', ex:'const a = np.array([1, 2, 3]);\nconst b = np.array([4, 5, 6]);\nconst r = np.corrcoef(a, b);' },
+{ name:"correlate", sig:'correlate(a: NdArray, v: NdArray, mode?: string): NdArray', desc:'Cross-correlation of two 1-dimensional sequences.', ex:'const a = np.array([1, 2, 3]);\nconst b = np.array([0, 1, 0.5]);\nconst c = np.correlate(a, b);' },
+{ name:"cov", sig:'cov(m: NdArray, y?: NdArray, ddof?: number): NdArray', desc:'Estimate a covariance matrix.', ex:'const a = np.array([[1, 2, 3], [4, 5, 6]]);\nconst c = np.cov(a);' },
+{ name:"histogram", sig:'histogram(a: NdArray, bins?: number | NdArray): [NdArray, NdArray]', desc:'Compute the histogram of a dataset.', ex:'const a = np.array([1, 2, 1, 3, 2, 1]);\nconst [counts, edges] = np.histogram(a, 3);' },
+{ name:"histogram2d", sig:'histogram2d(x: NdArray, y: NdArray, bins?: number): [NdArray, NdArray, NdArray]', desc:'Compute the bi-dimensional histogram of two data samples.', ex:'const x = np.random.randn(100);\nconst y = np.random.randn(100);\nconst [H, xE, yE] = np.histogram2d(x, y);' },
+{ name:"bincount", sig:'bincount(x: NdArray, weights?: NdArray, minlength?: number): NdArray', desc:'Count number of occurrences of each value in array.', ex:'const a = np.array([0, 1, 1, 3, 2, 1]);\nconst b = np.bincount(a);\n// [1, 3, 1, 1]' },
+{ name:"histogramBinEdges", sig:'histogramBinEdges(a: NdArray, bins?: number | string): NdArray', desc:'Compute the bin edges used by histogram.', ex:'const a = np.random.randn(100);\nconst edges = np.histogramBinEdges(a, 10);' },
+{ name:"digitize", sig:'digitize(x: NdArray, bins: NdArray, right?: boolean): NdArray', desc:'Return the indices of the bins to which each value belongs.', ex:'const x = np.array([0.5, 1.5, 2.5]);\nconst bins = np.array([1, 2, 3]);\nconst idx = np.digitize(x, bins);' },
+],
+comingSoon: ["histogramdd"]
+},
+{
+cat: "Sorting & Searching",
+implemented: [
+{ name:"sort", sig:'sort(a: NdArray, axis?: number): NdArray', desc:'Return a sorted copy of an array.', ex:'const a = np.array([3, 1, 4, 1, 5]);\nconst b = np.sort(a); // [1, 1, 3, 4, 5]' },
+{ name:"lexsort", sig:'lexsort(keys: NdArray[]): NdArray', desc:'Perform an indirect stable sort using a sequence of keys.', ex:'const names = np.array([1, 2, 1, 2]);\nconst ages = np.array([30, 20, 20, 30]);\nconst idx = np.lexsort([ages, names]);' },
+{ name:"argsort", sig:'argsort(a: NdArray, axis?: number): NdArray', desc:'Returns the indices that would sort an array.', ex:'const a = np.array([3, 1, 2]);\nconst idx = np.argsort(a); // [1, 2, 0]' },
+{ name:"partition", sig:'partition(a: NdArray, kth: number, axis?: number): NdArray', desc:'Return a partially sorted copy of an array.', ex:'const a = np.array([3, 4, 2, 1]);\nconst b = np.partition(a, 2);' },
+{ name:"argpartition", sig:'argpartition(a: NdArray, kth: number, axis?: number): NdArray', desc:'Perform an indirect partition along the given axis.', ex:'const a = np.array([3, 4, 2, 1]);\nconst idx = np.argpartition(a, 2);' },
+{ name:"msort", sig:'msort(a: NdArray): NdArray', desc:'Return a copy of an array sorted along the first axis.', ex:'const a = np.array([[3, 1], [2, 4]]);\nconst b = np.msort(a);' },
+{ name:"argmax", sig:'argmax(a: NdArray, axis?: number): NdArray | number', desc:'Returns the indices of the maximum values along an axis.', ex:'const a = np.array([1, 5, 3]);\nconst idx = np.argmax(a); // 1' },
+{ name:"nanargmax", sig:'nanargmax(a: NdArray, axis?: number): NdArray | number', desc:'Return the indices of the maximum ignoring NaN.', ex:'const a = np.array([1, NaN, 3]);\nconst idx = np.nanargmax(a); // 2' },
+{ name:"argmin", sig:'argmin(a: NdArray, axis?: number): NdArray | number', desc:'Returns the indices of the minimum values along an axis.', ex:'const a = np.array([3, 1, 2]);\nconst idx = np.argmin(a); // 1' },
+{ name:"nanargmin", sig:'nanargmin(a: NdArray, axis?: number): NdArray | number', desc:'Return the indices of the minimum ignoring NaN.', ex:'const a = np.array([NaN, 2, 1]);\nconst idx = np.nanargmin(a); // 2' },
+{ name:"argwhere", sig:'argwhere(a: NdArray): NdArray', desc:'Find the indices of array elements that are non-zero.', ex:'const a = np.array([0, 1, 0, 3]);\nconst idx = np.argwhere(a);' },
+{ name:"nonzero", sig:'nonzero(a: NdArray): NdArray[]', desc:'Return the indices of the non-zero elements.', ex:'const a = np.array([0, 1, 0, 3]);\nconst [idx] = np.nonzero(a); // [1, 3]' },
+{ name:"flatnonzero", sig:'flatnonzero(a: NdArray): NdArray', desc:'Return indices that are non-zero in the flattened array.', ex:'const a = np.array([0, 1, 0, 3]);\nconst idx = np.flatnonzero(a); // [1, 3]' },
+{ name:"where", sig:'where(condition: NdArray, x?: NdArray, y?: NdArray): NdArray', desc:'Return elements chosen from x or y depending on condition.', ex:'const a = np.array([1, -2, 3, -4]);\nconst b = np.where(\n  np.greater(a, np.zeros([4])), a, np.zeros([4])\n);' },
+{ name:"searchsorted", sig:'searchsorted(a: NdArray, v: NdArray, side?: string): NdArray', desc:'Find indices where elements should be inserted to maintain order.', ex:'const a = np.array([1, 2, 3, 4, 5]);\nconst idx = np.searchsorted(a, np.array([3.5]));' },
+{ name:"extract", sig:'extract(condition: NdArray, a: NdArray): NdArray', desc:'Return the elements of an array that satisfy some condition.', ex:'const a = np.array([1, -2, 3, -4]);\nconst cond = np.greater(a, np.zeros([4]));\nconst b = np.extract(cond, a);' },
+{ name:"countNonzero", sig:'countNonzero(a: NdArray, axis?: number): NdArray | number', desc:'Count the number of non-zero values in the array.', ex:'const a = np.array([0, 1, 0, 3, 0]);\nconst n = np.countNonzero(a); // 2' },
+],
+comingSoon: ["sort_complex"]
+},
+{
+cat: "Random",
+implemented: [
+{ name:"rand", sig:'random.rand(...shape: number[]): NdArray', desc:'Random values in a given shape from uniform [0, 1).', ex:'const a = np.random.rand(3, 3);\nconsole.log(a.shape); // [3, 3]' },
+{ name:"random", sig:'random.random(shape: number[]): NdArray', desc:'Return random floats in the half-open interval [0.0, 1.0).', ex:'const a = np.random.random([2, 3]);\nconsole.log(a.shape); // [2, 3]' },
+{ name:"randint", sig:'random.randint(low: number, high: number, size?: number[]): NdArray', desc:'Return random integers from low (inclusive) to high (exclusive).', ex:'const a = np.random.randint(0, 10, [5]);\n// e.g. [3, 7, 2, 8, 1]' },
+{ name:"randn", sig:'random.randn(...shape: number[]): NdArray', desc:'Return samples from the standard normal distribution.', ex:'const a = np.random.randn(1000);\nconsole.log(np.mean(a)); // ~0' },
+{ name:"choice", sig:'random.choice(a: NdArray | number, size?: number, replace?: boolean, p?: NdArray): NdArray', desc:'Generate a random sample from a given 1-D array.', ex:'const a = np.random.choice(5, 3);\n// e.g. [2, 0, 4]' },
+{ name:"seed", sig:'random.seed(s: number): void', desc:'Seed the random number generator for reproducibility.', ex:'np.random.seed(42);\nconst a = np.random.rand(3);' },
+{ name:"shuffle", sig:'random.shuffle(x: NdArray): void', desc:'Modify a sequence in-place by shuffling its contents.', ex:'const a = np.arange(10);\nnp.random.shuffle(a);' },
+{ name:"permutation", sig:'random.permutation(x: number | NdArray): NdArray', desc:'Randomly permute a sequence, or return a permuted range.', ex:'const a = np.random.permutation(10);\n// random order of 0-9' },
+{ name:"normal", sig:'random.normal(loc?: number, scale?: number, size?: number[]): NdArray', desc:'Draw samples from a normal (Gaussian) distribution.', ex:'const a = np.random.normal(0, 1, [1000]);\nconsole.log(np.mean(a)); // ~0' },
+{ name:"uniform", sig:'random.uniform(low?: number, high?: number, size?: number[]): NdArray', desc:'Draw samples from a uniform distribution.', ex:'const a = np.random.uniform(-1, 1, [5]);\n// values between -1 and 1' },
+{ name:"exponential", sig:'random.exponential(scale?: number, size?: number[]): NdArray', desc:'Draw samples from an exponential distribution.', ex:'const a = np.random.exponential(1.0, [1000]);\nconsole.log(np.mean(a)); // ~1.0' },
+{ name:"beta", sig:'random.beta(a: number, b: number, size?: number[]): NdArray', desc:'Draw samples from a Beta distribution.', ex:'const a = np.random.beta(2, 5, [1000]);\nconsole.log(np.mean(a));' },
+{ name:"binomial", sig:'random.binomial(n: number, p: number, size?: number[]): NdArray', desc:'Draw samples from a binomial distribution.', ex:'const a = np.random.binomial(10, 0.5, [1000]);\nconsole.log(np.mean(a)); // ~5' },
+{ name:"chisquare", sig:'random.chisquare(df: number, size?: number[]): NdArray', desc:'Draw samples from a chi-square distribution.', ex:'const a = np.random.chisquare(2, [1000]);\nconsole.log(np.mean(a)); // ~2' },
+{ name:"dirichlet", sig:'random.dirichlet(alpha: number[], size?: number): NdArray', desc:'Draw samples from the Dirichlet distribution.', ex:'const a = np.random.dirichlet([1, 1, 1], 5);\nconsole.log(a.shape); // [5, 3]' },
+{ name:"f", sig:'random.f(dfnum: number, dfden: number, size?: number[]): NdArray', desc:'Draw samples from an F distribution.', ex:'const a = np.random.f(5, 2, [1000]);\nconsole.log(np.mean(a));' },
+{ name:"gamma", sig:'random.gamma(shape: number, scale?: number, size?: number[]): NdArray', desc:'Draw samples from a Gamma distribution.', ex:'const a = np.random.gamma(2, 2, [1000]);\nconsole.log(np.mean(a)); // ~4' },
+{ name:"geometric", sig:'random.geometric(p: number, size?: number[]): NdArray', desc:'Draw samples from the geometric distribution.', ex:'const a = np.random.geometric(0.5, [1000]);\nconsole.log(np.mean(a)); // ~2' },
+{ name:"hypergeometric", sig:'random.hypergeometric(ngood: number, nbad: number, nsample: number, size?: number[]): NdArray', desc:'Draw samples from a hypergeometric distribution.', ex:'const a = np.random.hypergeometric(10, 10, 10, [1000]);' },
+{ name:"lognormal", sig:'random.lognormal(mean?: number, sigma?: number, size?: number[]): NdArray', desc:'Draw samples from a log-normal distribution.', ex:'const a = np.random.lognormal(0, 1, [1000]);\nconsole.log(np.median(a)); // ~1' },
+{ name:"multinomial", sig:'random.multinomial(n: number, pvals: number[], size?: number): NdArray', desc:'Draw samples from a multinomial distribution.', ex:'const a = np.random.multinomial(20, [0.5, 0.3, 0.2]);\n// e.g. [10, 6, 4]' },
+{ name:"multivariateNormal", sig:'random.multivariateNormal(mean: number[], cov: number[][], size?: number): NdArray', desc:'Draw samples from a multivariate normal distribution.', ex:'const a = np.random.multivariateNormal(\n  [0, 0], [[1, 0], [0, 1]], 100\n);' },
+{ name:"negativeBinomial", sig:'random.negativeBinomial(n: number, p: number, size?: number[]): NdArray', desc:'Draw samples from a negative binomial distribution.', ex:'const a = np.random.negativeBinomial(5, 0.5, [1000]);' },
+{ name:"pareto", sig:'random.pareto(a: number, size?: number[]): NdArray', desc:'Draw samples from a Pareto II (Lomax) distribution.', ex:'const a = np.random.pareto(3, [1000]);' },
+{ name:"poisson", sig:'random.poisson(lam?: number, size?: number[]): NdArray', desc:'Draw samples from a Poisson distribution.', ex:'const a = np.random.poisson(5, [1000]);\nconsole.log(np.mean(a)); // ~5' },
+{ name:"rayleigh", sig:'random.rayleigh(scale?: number, size?: number[]): NdArray', desc:'Draw samples from a Rayleigh distribution.', ex:'const a = np.random.rayleigh(1.0, [1000]);' },
+{ name:"standardCauchy", sig:'random.standardCauchy(size?: number[]): NdArray', desc:'Draw samples from a standard Cauchy distribution.', ex:'const a = np.random.standardCauchy([1000]);' },
+{ name:"standardNormal", sig:'random.standardNormal(size?: number[]): NdArray', desc:'Draw samples from a standard normal distribution.', ex:'const a = np.random.standardNormal([1000]);\nconsole.log(np.mean(a)); // ~0' },
+{ name:"standardT", sig:'random.standardT(df: number, size?: number[]): NdArray', desc:"Draw samples from a standard Student's t distribution.", ex:'const a = np.random.standardT(10, [1000]);' },
+{ name:"triangular", sig:'random.triangular(left: number, mode: number, right: number, size?: number[]): NdArray', desc:'Draw samples from the triangular distribution.', ex:'const a = np.random.triangular(0, 0.5, 1, [1000]);' },
+{ name:"vonmises", sig:'random.vonmises(mu: number, kappa: number, size?: number[]): NdArray', desc:'Draw samples from a von Mises distribution.', ex:'const a = np.random.vonmises(0, 4, [1000]);' },
+{ name:"wald", sig:'random.wald(mean: number, scale: number, size?: number[]): NdArray', desc:'Draw samples from a Wald (inverse Gaussian) distribution.', ex:'const a = np.random.wald(1, 1, [1000]);' },
+{ name:"weibull", sig:'random.weibull(a: number, size?: number[]): NdArray', desc:'Draw samples from a Weibull distribution.', ex:'const a = np.random.weibull(5, [1000]);' },
+{ name:"zipf", sig:'random.zipf(a: number, size?: number[]): NdArray', desc:'Draw samples from a Zipf distribution.', ex:'const a = np.random.zipf(2, [1000]);' },
+],
+comingSoon: ["gumbel","laplace","logistic","logseries","noncentral_chisquare","noncentral_f","standard_exponential","standard_gamma","multivariate_hypergeometric","permuted","bytes"]
+},
+{
+cat: "FFT",
+implemented: [
+{ name:"fft", sig:'fft.fft(a: NdArray, n?: number): NdArray', desc:'Compute the one-dimensional discrete Fourier Transform.', ex:'const a = np.array([1, 2, 1, 0]);\nconst F = np.fft.fft(a);' },
+{ name:"ifft", sig:'fft.ifft(a: NdArray, n?: number): NdArray', desc:'Compute the one-dimensional inverse discrete Fourier Transform.', ex:'const F = np.fft.fft(np.array([1, 2, 1, 0]));\nconst a = np.fft.ifft(F);' },
+{ name:"fft2", sig:'fft.fft2(a: NdArray, s?: number[]): NdArray', desc:'Compute the 2-dimensional discrete Fourier Transform.', ex:'const a = np.ones([4, 4]);\nconst F = np.fft.fft2(a);' },
+{ name:"ifft2", sig:'fft.ifft2(a: NdArray, s?: number[]): NdArray', desc:'Compute the 2-dimensional inverse discrete Fourier Transform.', ex:'const F = np.fft.fft2(np.ones([4, 4]));\nconst a = np.fft.ifft2(F);' },
+{ name:"fftn", sig:'fft.fftn(a: NdArray, s?: number[]): NdArray', desc:'Compute the N-dimensional discrete Fourier Transform.', ex:'const a = np.ones([2, 2, 2]);\nconst F = np.fft.fftn(a);' },
+{ name:"ifftn", sig:'fft.ifftn(a: NdArray, s?: number[]): NdArray', desc:'Compute the N-dimensional inverse discrete Fourier Transform.', ex:'const F = np.fft.fftn(np.ones([2, 2, 2]));\nconst a = np.fft.ifftn(F);' },
+{ name:"rfft", sig:'fft.rfft(a: NdArray, n?: number): NdArray', desc:'Compute the one-dimensional DFT for real input.', ex:'const a = np.array([0, 1, 0, 0]);\nconst F = np.fft.rfft(a);' },
+{ name:"irfft", sig:'fft.irfft(a: NdArray, n?: number): NdArray', desc:'Compute the inverse of rfft.', ex:'const F = np.fft.rfft(np.array([0, 1, 0, 0]));\nconst a = np.fft.irfft(F);' },
+{ name:"fftfreq", sig:'fft.fftfreq(n: number, d?: number): NdArray', desc:'Return the DFT sample frequencies.', ex:'const f = np.fft.fftfreq(8, 0.1);\nconsole.log(f.tolist());' },
+{ name:"rfftfreq", sig:'fft.rfftfreq(n: number, d?: number): NdArray', desc:'Return the DFT sample frequencies for rfft.', ex:'const f = np.fft.rfftfreq(8, 0.1);' },
+{ name:"fftshift", sig:'fft.fftshift(x: NdArray): NdArray', desc:'Shift the zero-frequency component to the center.', ex:'const f = np.fft.fftfreq(8, 0.1);\nconst shifted = np.fft.fftshift(f);' },
+{ name:"ifftshift", sig:'fft.ifftshift(x: NdArray): NdArray', desc:'Inverse of fftshift.', ex:'const shifted = np.fft.fftshift(np.fft.fftfreq(8));\nconst f = np.fft.ifftshift(shifted);' },
+],
+comingSoon: ["rfft2","irfft2","rfftn","irfftn","hfft","ihfft"]
+},
+{
+cat: "Logic Functions",
+implemented: [
+{ name:"all", sig:'all(a: NdArray, axis?: number): boolean | NdArray', desc:'Test whether all array elements evaluate to true.', ex:'const a = np.array([1, 1, 1]);\nconsole.log(np.all(a)); // true' },
+{ name:"any", sig:'any(a: NdArray, axis?: number): boolean | NdArray', desc:'Test whether any array element evaluates to true.', ex:'const a = np.array([0, 0, 1]);\nconsole.log(np.any(a)); // true' },
+{ name:"isfinite", sig:'isfinite(x: NdArray): NdArray', desc:'Test element-wise for finiteness.', ex:'const a = np.array([1, Infinity, NaN]);\nconst b = np.isfinite(a);' },
+{ name:"isinf", sig:'isinf(x: NdArray): NdArray', desc:'Test element-wise for positive or negative infinity.', ex:'const a = np.array([1, Infinity, -Infinity]);\nconst b = np.isinf(a);' },
+{ name:"isnan", sig:'isnan(x: NdArray): NdArray', desc:'Test element-wise for NaN.', ex:'const a = np.array([1, NaN, 3]);\nconst b = np.isnan(a);' },
+{ name:"isneginf", sig:'isneginf(x: NdArray): NdArray', desc:'Test element-wise for negative infinity.', ex:'const a = np.array([1, -Infinity, Infinity]);\nconst b = np.isneginf(a);' },
+{ name:"isposinf", sig:'isposinf(x: NdArray): NdArray', desc:'Test element-wise for positive infinity.', ex:'const a = np.array([1, -Infinity, Infinity]);\nconst b = np.isposinf(a);' },
+{ name:"isreal", sig:'isreal(x: NdArray): NdArray', desc:'Returns a boolean array where true means element is real.', ex:'const a = np.array([1, 2, 3]);\nconst b = np.isreal(a);' },
+{ name:"isscalar", sig:'isscalar(element: any): boolean', desc:'Returns true if the type of element is a scalar type.', ex:'console.log(np.isscalar(3.0)); // true\nconsole.log(np.isscalar([1])); // false' },
+{ name:"logicalAnd", sig:'logicalAnd(x1: NdArray, x2: NdArray): NdArray', desc:'Compute the truth value of x1 AND x2 element-wise.', ex:'const a = np.array([1, 0, 1]);\nconst b = np.array([1, 1, 0]);\nconst c = np.logicalAnd(a, b);' },
+{ name:"logicalOr", sig:'logicalOr(x1: NdArray, x2: NdArray): NdArray', desc:'Compute the truth value of x1 OR x2 element-wise.', ex:'const a = np.array([1, 0, 0]);\nconst b = np.array([0, 0, 1]);\nconst c = np.logicalOr(a, b);' },
+{ name:"logicalNot", sig:'logicalNot(x: NdArray): NdArray', desc:'Compute the truth value of NOT x element-wise.', ex:'const a = np.array([1, 0, 1]);\nconst b = np.logicalNot(a); // [false, true, false]' },
+{ name:"logicalXor", sig:'logicalXor(x1: NdArray, x2: NdArray): NdArray', desc:'Compute the truth value of x1 XOR x2 element-wise.', ex:'const a = np.array([1, 0, 1]);\nconst b = np.array([1, 1, 0]);\nconst c = np.logicalXor(a, b);' },
+{ name:"allclose", sig:'allclose(a: NdArray, b: NdArray, rtol?: number, atol?: number): boolean', desc:'Returns true if two arrays are element-wise equal within a tolerance.', ex:'const a = np.array([1.0, 1e-10]);\nconst b = np.array([1.0, 0.0]);\nconsole.log(np.allclose(a, b)); // true' },
+{ name:"isclose", sig:'isclose(a: NdArray, b: NdArray, rtol?: number, atol?: number): NdArray', desc:'Returns a boolean array where elements are equal within a tolerance.', ex:'const a = np.array([1.0, 1.0001]);\nconst b = np.array([1.0, 1.0002]);\nconst c = np.isclose(a, b);' },
+{ name:"arrayEqual", sig:'arrayEqual(a1: NdArray, a2: NdArray): boolean', desc:'True if two arrays have the same shape and elements.', ex:'const a = np.array([1, 2, 3]);\nconst b = np.array([1, 2, 3]);\nconsole.log(np.arrayEqual(a, b)); // true' },
+{ name:"array_equiv", sig:'array_equiv(a1: NdArray, a2: NdArray): boolean', desc:'Returns true if arrays are shape consistent and all elements equal.', ex:'const a = np.array([1, 2]);\nconst b = np.array([1, 2]);\nconsole.log(np.array_equiv(a, b)); // true' },
+{ name:"greater", sig:'greater(x1: NdArray, x2: NdArray): NdArray', desc:'Return the truth value of (x1 > x2) element-wise.', ex:'const a = np.greater(\n  np.array([4, 2, 1]), np.array([2, 2, 2])\n); // [true, false, false]' },
+{ name:"greaterEqual", sig:'greaterEqual(x1: NdArray, x2: NdArray): NdArray', desc:'Return the truth value of (x1 >= x2) element-wise.', ex:'const a = np.greaterEqual(\n  np.array([4, 2, 1]), np.array([2, 2, 2])\n);' },
+{ name:"less", sig:'less(x1: NdArray, x2: NdArray): NdArray', desc:'Return the truth value of (x1 < x2) element-wise.', ex:'const a = np.less(\n  np.array([1, 2, 3]), np.array([2, 2, 2])\n);' },
+{ name:"lessEqual", sig:'lessEqual(x1: NdArray, x2: NdArray): NdArray', desc:'Return the truth value of (x1 <= x2) element-wise.', ex:'const a = np.lessEqual(\n  np.array([1, 2, 3]), np.array([2, 2, 2])\n);' },
+{ name:"equal", sig:'equal(x1: NdArray, x2: NdArray): NdArray', desc:'Return (x1 == x2) element-wise.', ex:'const a = np.equal(\n  np.array([1, 2, 3]), np.array([1, 0, 3])\n); // [true, false, true]' },
+{ name:"notEqual", sig:'notEqual(x1: NdArray, x2: NdArray): NdArray', desc:'Return (x1 != x2) element-wise.', ex:'const a = np.notEqual(\n  np.array([1, 2, 3]), np.array([1, 0, 3])\n); // [false, true, false]' },
+],
+comingSoon: ["isnat","iscomplex","iscomplexobj","isfortran","isrealobj"]
+},
+{
+cat: "Set Operations",
+implemented: [
+{ name:"unique", sig:'unique(a: NdArray): NdArray', desc:'Find the sorted unique elements of an array.', ex:'const a = np.array([2, 1, 3, 2, 1]);\nconst b = np.unique(a); // [1, 2, 3]' },
+{ name:"uniqueCounts", sig:'uniqueCounts(a: NdArray): [NdArray, NdArray]', desc:'Find unique elements and their counts.', ex:'const a = np.array([1, 1, 2, 3, 3, 3]);\nconst [vals, counts] = np.uniqueCounts(a);' },
+{ name:"uniqueInverse", sig:'uniqueInverse(a: NdArray): [NdArray, NdArray]', desc:'Find unique elements and indices to reconstruct original.', ex:'const a = np.array([2, 1, 2, 3]);\nconst [vals, inv] = np.uniqueInverse(a);' },
+{ name:"intersect1d", sig:'intersect1d(ar1: NdArray, ar2: NdArray): NdArray', desc:'Find the intersection of two arrays.', ex:'const a = np.array([1, 2, 3]);\nconst b = np.array([2, 3, 4]);\nconst c = np.intersect1d(a, b); // [2, 3]' },
+{ name:"isin", sig:'isin(element: NdArray, testElements: NdArray): NdArray', desc:'Test whether each element is in a test array.', ex:'const a = np.array([1, 2, 3, 4]);\nconst b = np.array([2, 4]);\nconst c = np.isin(a, b);' },
+{ name:"setdiff1d", sig:'setdiff1d(ar1: NdArray, ar2: NdArray): NdArray', desc:'Find the set difference of two arrays.', ex:'const a = np.array([1, 2, 3, 4]);\nconst b = np.array([2, 4]);\nconst c = np.setdiff1d(a, b); // [1, 3]' },
+{ name:"union1d", sig:'union1d(ar1: NdArray, ar2: NdArray): NdArray', desc:'Find the union of two arrays.', ex:'const a = np.array([1, 2, 3]);\nconst b = np.array([2, 3, 4]);\nconst c = np.union1d(a, b); // [1, 2, 3, 4]' },
+],
+comingSoon: ["setxor1d","unique_all","unique_values"]
+},
+{
+cat: "Bitwise Operations",
+implemented: [
+{ name:"bitwiseAnd", sig:'bitwiseAnd(x1: NdArray, x2: NdArray): NdArray', desc:'Compute the bit-wise AND of two arrays element-wise.', ex:'const a = np.bitwiseAnd(\n  np.array([0b1100, 0b1010]),\n  np.array([0b1010, 0b0110])\n);' },
+{ name:"bitwiseOr", sig:'bitwiseOr(x1: NdArray, x2: NdArray): NdArray', desc:'Compute the bit-wise OR of two arrays element-wise.', ex:'const a = np.bitwiseOr(\n  np.array([0b1100, 0b1010]),\n  np.array([0b1010, 0b0110])\n);' },
+{ name:"bitwiseXor", sig:'bitwiseXor(x1: NdArray, x2: NdArray): NdArray', desc:'Compute the bit-wise XOR of two arrays element-wise.', ex:'const a = np.bitwiseXor(\n  np.array([0b1100]), np.array([0b1010])\n);' },
+{ name:"bitwiseNot", sig:'bitwiseNot(x: NdArray): NdArray', desc:'Compute bit-wise inversion (NOT) element-wise.', ex:'const a = np.bitwiseNot(np.array([0, 1, -1]));\n// [-1, -2, 0]' },
+{ name:"leftShift", sig:'leftShift(x1: NdArray, x2: NdArray): NdArray', desc:'Shift the bits of an integer to the left.', ex:'const a = np.leftShift(\n  np.array([1, 2, 4]), np.array([1, 2, 3])\n); // [2, 8, 32]' },
+{ name:"rightShift", sig:'rightShift(x1: NdArray, x2: NdArray): NdArray', desc:'Shift the bits of an integer to the right.', ex:'const a = np.rightShift(\n  np.array([8, 16, 32]), np.array([1, 2, 3])\n); // [4, 4, 4]' },
+{ name:"packbits", sig:'packbits(a: NdArray, axis?: number): NdArray', desc:'Pack the elements of a binary-valued array into bits.', ex:'const a = np.array([1, 0, 1, 1, 0, 0, 0, 1]);\nconst b = np.packbits(a); // [0b10110001]' },
+{ name:"unpackbits", sig:'unpackbits(a: NdArray, axis?: number): NdArray', desc:'Unpack elements of a uint8 array into a binary array.', ex:'const a = np.array([0b10110001]);\nconst b = np.unpackbits(a);\n// [1, 0, 1, 1, 0, 0, 0, 1]' },
+],
+comingSoon: ["bitwise_count","binary_repr"]
+},
+{
+cat: "Indexing",
+implemented: [
+{ name:"nonzero", sig:'nonzero(a: NdArray): NdArray[]', desc:'Return the indices of non-zero elements.', ex:'const a = np.array([0, 1, 0, 3]);\nconst [idx] = np.nonzero(a);' },
+{ name:"where", sig:'where(condition: NdArray, x?: NdArray, y?: NdArray): NdArray', desc:'Return elements depending on condition.', ex:'const a = np.array([1, -2, 3]);\nconst b = np.where(\n  np.greater(a, np.zeros([3])), a, np.zeros([3])\n);' },
+{ name:"indices", sig:'indices(dimensions: number[]): NdArray', desc:'Return an array representing the indices of a grid.', ex:'const idx = np.indices([2, 3]);\nconsole.log(idx.shape); // [2, 2, 3]' },
+{ name:"ix_", sig:'ix_(...args: NdArray[]): NdArray[]', desc:'Construct an open mesh from multiple sequences.', ex:'const [r, c] = np.ix_(\n  np.array([0, 2]), np.array([1, 3])\n);' },
+{ name:"ravelMultiIndex", sig:'ravelMultiIndex(multiIndex: NdArray[], dims: number[]): NdArray', desc:'Convert a tuple of index arrays into flat indices.', ex:'const flat = np.ravelMultiIndex(\n  [np.array([1, 0]), np.array([2, 1])], [3, 4]\n);' },
+{ name:"unravelIndex", sig:'unravelIndex(indices: NdArray, shape: number[]): NdArray[]', desc:'Convert flat indices into a tuple of coordinate arrays.', ex:'const [r, c] = np.unravelIndex(\n  np.array([6, 3]), [3, 4]\n);' },
+{ name:"diagIndices", sig:'diagIndices(n: number, ndim?: number): NdArray[]', desc:'Return the indices to access the main diagonal of an array.', ex:'const [i, j] = np.diagIndices(3);\n// i: [0, 1, 2], j: [0, 1, 2]' },
+{ name:"trilIndices", sig:'trilIndices(n: number, k?: number, m?: number): [NdArray, NdArray]', desc:'Return the indices for the lower-triangle of an array.', ex:'const [r, c] = np.trilIndices(3);' },
+{ name:"triuIndices", sig:'triuIndices(n: number, k?: number, m?: number): [NdArray, NdArray]', desc:'Return the indices for the upper-triangle of an array.', ex:'const [r, c] = np.triuIndices(3);' },
+{ name:"take", sig:'take(a: NdArray, indices: NdArray, axis?: number): NdArray', desc:'Take elements from an array along an axis.', ex:'const a = np.array([4, 3, 5, 7]);\nconst b = np.take(a, np.array([0, 1, 3]));' },
+{ name:"takeAlongAxis", sig:'takeAlongAxis(a: NdArray, indices: NdArray, axis: number): NdArray', desc:'Take values from the input array by matching 1d index and data slices.', ex:'const a = np.array([[1, 2], [3, 4]]);\nconst idx = np.array([[0], [1]]);\nconst b = np.takeAlongAxis(a, idx, 1);' },
+{ name:"choose", sig:'choose(a: NdArray, choices: NdArray[]): NdArray', desc:'Construct an array from an index array and a list of arrays.', ex:'const a = np.array([0, 1, 0, 1]);\nconst b = np.choose(a, [\n  np.array([10, 20, 30, 40]),\n  np.array([50, 60, 70, 80])\n]);' },
+{ name:"compress", sig:'compress(condition: NdArray, a: NdArray, axis?: number): NdArray', desc:'Return selected slices along given axis.', ex:'const a = np.array([1, 2, 3, 4]);\nconst b = np.compress(\n  np.array([1, 0, 1, 0]), a\n); // [1, 3]' },
+{ name:"select", sig:'select(condlist: NdArray[], choicelist: NdArray[], default_?: number): NdArray', desc:'Return an array drawn from elements in choicelist, depending on conditions.', ex:'const x = np.arange(6);\nconst cond = [np.less(x, np.full([6], 3))];\nconst b = np.select(cond, [x], -1);' },
+{ name:"place", sig:'place(a: NdArray, mask: NdArray, vals: NdArray): void', desc:'Change elements of an array based on a conditional mask.', ex:'const a = np.array([1, 2, 3, 4]);\nnp.place(a, np.greater(a, np.full([4], 2)), np.array([0]));' },
+{ name:"put", sig:'put(a: NdArray, ind: NdArray, v: NdArray): void', desc:'Replace specified elements of an array with given values.', ex:'const a = np.array([1, 2, 3, 4]);\nnp.put(a, np.array([0, 3]), np.array([99, 99]));' },
+{ name:"putAlongAxis", sig:'putAlongAxis(a: NdArray, indices: NdArray, values: NdArray, axis: number): void', desc:'Put values into the destination array along an axis.', ex:'const a = np.zeros([2, 3]);\nnp.putAlongAxis(a, np.array([[1], [2]]), np.ones([2, 1]), 1);' },
+{ name:"fillDiagonal", sig:'fillDiagonal(a: NdArray, val: number, wrap?: boolean): void', desc:'Fill the main diagonal of the given array.', ex:'const a = np.zeros([3, 3]);\nnp.fillDiagonal(a, 5);' },
+],
+comingSoon: ["c_","r_","s_","putmask","diagonal","diag_indices_from","tril_indices_from","triu_indices_from","mask_indices"]
+},
+{
+cat: "Window Functions",
+implemented: [
+{ name:"bartlett", sig:'bartlett(M: number): NdArray', desc:'Return the Bartlett window.', ex:'const w = np.bartlett(12);\nconsole.log(w.shape); // [12]' },
+{ name:"blackman", sig:'blackman(M: number): NdArray', desc:'Return the Blackman window.', ex:'const w = np.blackman(12);\nconsole.log(w.shape); // [12]' },
+{ name:"hamming", sig:'hamming(M: number): NdArray', desc:'Return the Hamming window.', ex:'const w = np.hamming(12);\nconsole.log(w.shape); // [12]' },
+{ name:"hanning", sig:'hanning(M: number): NdArray', desc:'Return the Hanning window.', ex:'const w = np.hanning(12);\nconsole.log(w.shape); // [12]' },
+{ name:"kaiser", sig:'kaiser(M: number, beta: number): NdArray', desc:'Return the Kaiser window.', ex:'const w = np.kaiser(12, 14);\nconsole.log(w.shape); // [12]' },
+],
+comingSoon: []
+},
+{
+cat: "Polynomials",
+implemented: [
+{ name:"polyval", sig:'polyval(p: NdArray, x: NdArray): NdArray', desc:'Evaluate a polynomial at specific values.', ex:'const p = np.array([1, -2, 1]); // x^2 - 2x + 1\nconst y = np.polyval(p, np.array([0, 1, 2]));' },
+{ name:"polyadd", sig:'polyadd(a1: NdArray, a2: NdArray): NdArray', desc:'Find the sum of two polynomials.', ex:'const p = np.polyadd(\n  np.array([1, 2]), np.array([3, 4])\n); // [4, 6]' },
+{ name:"polymul", sig:'polymul(a1: NdArray, a2: NdArray): NdArray', desc:'Find the product of two polynomials.', ex:'const p = np.polymul(\n  np.array([1, 1]), np.array([1, 1])\n); // [1, 2, 1]' },
+{ name:"polyfit", sig:'polyfit(x: NdArray, y: NdArray, deg: number): NdArray', desc:'Least squares polynomial fit.', ex:'const x = np.array([0, 1, 2, 3]);\nconst y = np.array([0, 1, 4, 9]);\nconst p = np.polyfit(x, y, 2);' },
+{ name:"polyder", sig:'polyder(p: NdArray, m?: number): NdArray', desc:'Return the derivative of the specified order of a polynomial.', ex:'const p = np.array([3, 2, 1]); // 3x^2 + 2x + 1\nconst d = np.polyder(p); // [6, 2]' },
+{ name:"polyint", sig:'polyint(p: NdArray, m?: number, k?: number): NdArray', desc:'Return an antiderivative (indefinite integral) of a polynomial.', ex:'const p = np.array([6, 2]); // 6x + 2\nconst q = np.polyint(p); // [3, 2, 0]' },
+{ name:"polydiv", sig:'polydiv(u: NdArray, v: NdArray): [NdArray, NdArray]', desc:'Returns the quotient and remainder of polynomial division.', ex:'const [q, r] = np.polydiv(\n  np.array([1, 0, -1]), np.array([1, 1])\n);' },
+{ name:"polysub", sig:'polysub(a1: NdArray, a2: NdArray): NdArray', desc:'Difference (subtraction) of two polynomials.', ex:'const p = np.polysub(\n  np.array([1, 2]), np.array([3, 4])\n); // [-2, -2]' },
+{ name:"roots", sig:'roots(p: NdArray): NdArray', desc:'Return the roots of a polynomial with the given coefficients.', ex:'const r = np.roots(np.array([1, -3, 2]));\n// roots of x^2 - 3x + 2 = [2, 1]' },
+],
+comingSoon: ["poly","poly1d"]
+}
+];
+
+// ── RENDER ──
+function escapeHtml(s) {
+  return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+function highlightCode(code) {
+  let h = escapeHtml(code);
+  h = h.replace(/(\/\/.*)/g, '<span class="cmt">$1</span>');
+  h = h.replace(/\b(import|from|const|let|var|function|return|new|typeof|void)\b/g, '<span class="kw">$1</span>');
+  h = h.replace(/\b(np\.\w+(?:\.\w+)?)/g, function(m) {
+    return '<span class="fn">' + m + '</span>';
+  });
+  h = h.replace(/(["'`])(?:(?!\1).)*\1/g, '<span class="str">$&</span>');
+  h = h.replace(/\b(\d+(?:\.\d+)?(?:e[+-]?\d+)?)\b/g, '<span class="num">$1</span>');
+  h = h.replace(/\b(true|false|null|undefined|NaN|Infinity|Math\.PI|Math\.E)\b/g, '<span class="num">$1</span>');
+  return h;
+}
+
+let totalImpl = 0, totalSoon = 0;
+API.forEach(c => {
+  totalImpl += c.implemented.length;
+  totalSoon += c.comingSoon.length;
+});
+
+document.getElementById('stats').innerHTML = `
+  <div class="stat"><span class="stat-num">${totalImpl}</span><span class="stat-label">Implemented</span></div>
+  <div class="stat"><span class="stat-num">${totalSoon}</span><span class="stat-label">Coming Soon</span></div>
+  <div class="stat"><span class="stat-num">${totalImpl + totalSoon}</span><span class="stat-label">Total API</span></div>
+  <div class="stat"><span class="stat-num">${API.length}</span><span class="stat-label">Categories</span></div>
+`;
+
+// Build sidebar
+const sidebarNav = document.getElementById('sidebarNav');
+API.forEach((cat, ci) => {
+  const total = cat.implemented.length + cat.comingSoon.length;
+  const div = document.createElement('div');
+  div.className = 'sidebar-cat';
+  div.innerHTML = `
+    <button class="sidebar-cat-btn" data-cat="${ci}">
+      <span>${cat.cat}</span>
+      <span style="display:flex;align-items:center;gap:6px">
+        <span class="count">${total}</span>
+        <span class="arrow">&#9654;</span>
+      </span>
+    </button>
+    <div class="sidebar-cat-fns" data-cat-fns="${ci}">
+      ${cat.implemented.map(fn =>
+        `<a href="#fn-${fn.name}-${ci}" data-fn="${fn.name}">${fn.name}</a>`
+      ).join('')}
+      ${cat.comingSoon.map(fn =>
+        `<a class="coming-soon" data-fn="${fn}">${fn}</a>`
+      ).join('')}
+    </div>
+  `;
+  sidebarNav.appendChild(div);
+});
+
+// Sidebar toggle
+document.querySelectorAll('.sidebar-cat-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    const ci = btn.dataset.cat;
+    const fns = document.querySelector(`[data-cat-fns="${ci}"]`);
+    btn.classList.toggle('open');
+    fns.classList.toggle('open');
+    // scroll to section
+    const section = document.getElementById('cat-' + ci);
+    if (section) section.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  });
+});
+
+// Build main content
+const content = document.getElementById('content');
+API.forEach((cat, ci) => {
+  const section = document.createElement('section');
+  section.className = 'cat-section';
+  section.id = 'cat-' + ci;
+
+  let html = `<div class="cat-header"><h2>${cat.cat}<span class="cat-count">${cat.implemented.length} implemented${cat.comingSoon.length ? ' · ' + cat.comingSoon.length + ' coming soon' : ''}</span></h2></div>`;
+
+  cat.implemented.forEach(fn => {
+    html += `
+      <div class="fn-entry" id="fn-${fn.name}-${ci}" data-name="${fn.name.toLowerCase()}">
+        <div><span class="fn-name">${fn.name}</span></div>
+        <div class="fn-sig">${escapeHtml(fn.sig)}</div>
+        <div class="fn-desc">${fn.desc}</div>
+        <pre class="fn-example">${highlightCode(fn.ex)}</pre>
+      </div>`;
+  });
+
+  cat.comingSoon.forEach(fn => {
+    html += `
+      <div class="fn-entry coming-soon" data-name="${fn.toLowerCase()}">
+        <div><span class="fn-name">${fn}</span><span class="fn-badge soon">coming soon</span></div>
+      </div>`;
+  });
+
+  section.innerHTML = html;
+  content.appendChild(section);
+});
+
+// ── SEARCH ──
+const searchInput = document.getElementById('search');
+const searchInfo = document.getElementById('searchInfo');
+
+searchInput.addEventListener('input', () => {
+  const q = searchInput.value.toLowerCase().trim();
+  const entries = document.querySelectorAll('.fn-entry');
+  const sections = document.querySelectorAll('.cat-section');
+  let shown = 0;
+
+  if (!q) {
+    entries.forEach(e => e.style.display = '');
+    sections.forEach(s => { s.style.display = ''; s.querySelector('.cat-header').style.display = ''; });
+    searchInfo.style.display = 'none';
+    return;
+  }
+
+  entries.forEach(e => {
+    const name = e.dataset.name || '';
+    if (name.includes(q)) {
+      e.style.display = '';
+      shown++;
+    } else {
+      e.style.display = 'none';
+    }
+  });
+
+  sections.forEach(s => {
+    const visible = s.querySelectorAll('.fn-entry:not([style*="display: none"])');
+    if (visible.length === 0) {
+      s.style.display = 'none';
+    } else {
+      s.style.display = '';
+      s.querySelector('.cat-header').style.display = '';
+    }
+  });
+
+  searchInfo.style.display = 'block';
+  searchInfo.textContent = `${shown} function${shown !== 1 ? 's' : ''} matching "${searchInput.value}"`;
+});
+
+// ── MOBILE SIDEBAR ──
+function toggleSidebar() {
+  document.getElementById('sidebar').classList.toggle('open');
+  document.querySelector('.overlay').classList.toggle('open');
+}
+
+// Close sidebar on link click (mobile)
+sidebarNav.querySelectorAll('a[href]').forEach(a => {
+  a.addEventListener('click', () => {
+    if (window.innerWidth <= 800) toggleSidebar();
+  });
+});
+</script>
+</body>
+</html>

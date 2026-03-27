@@ -9,7 +9,7 @@
  */
 
 import { describe, it, expect, beforeAll } from 'vitest';
-import { initWebGPUBackend, createWebGPUBackend, WebGPUBackend } from './webgpu-backend';
+import { initWebGPUBackend, createWebGPUBackend, WebGPUBackend } from '../src/webgpu-backend';
 import * as tf from '@tensorflow/tfjs';
 import '@tensorflow/tfjs-backend-webgpu';
 

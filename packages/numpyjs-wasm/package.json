@@ -1,0 +1,29 @@
+{
+  "name": "numpyjs-wasm",
+  "version": "0.1.0",
+  "description": "WASM backend for numpyjs - Rust-compiled WebAssembly implementing the numpyjs Backend interface",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "license": "MIT",
+  "author": "Sven",
+  "scripts": {
+    "build:wasm": "PATH=$HOME/.cargo/bin:$PATH wasm-pack build crates/rumpy-wasm --target web --no-default-features",
+    "build": "npm run build:wasm && tsc",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "numpyjs": "workspace:*"
+  },
+  "devDependencies": {
+    "@vitest/coverage-v8": "^4.1.1",
+    "typescript": "^5.3.0",
+    "vitest": "^4.1.1"
+  },
+  "files": [
+    "dist",
+    "crates/rumpy-wasm/pkg"
+  ]
+}

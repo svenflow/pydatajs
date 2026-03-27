@@ -4,13 +4,7 @@
  */
 
 import { describe, it, expect, beforeAll } from 'vitest';
-import { Backend, DEFAULT_TOL, approxEq } from './test-utils';
-
-// Helper to get data from arrays (handles GPU materialization)
-async function getData(arr: { toArray(): number[] }, B: Backend): Promise<number[]> {
-  if (B.materializeAll) await B.materializeAll();
-  return arr.toArray();
-}
+import { Backend, DEFAULT_TOL, approxEq, getData } from './test-utils';
 
 export function creationTests(getBackend: () => Backend) {
   describe('creation', () => {
@@ -22,57 +16,57 @@ export function creationTests(getBackend: () => Backend) {
     // ============ zeros ============
 
     describe('zeros', () => {
-      it('creates 1D zeros array', () => {
+      it('creates 1D zeros array', async () => {
         const arr = B.zeros([5]);
         expect(arr.shape).toEqual([5]);
-        expect(arr.data.every((x) => x === 0.0)).toBe(true);
+        expect((await getData(arr, B)).every(x => x === 0.0)).toBe(true);
       });
 
-      it('creates 2D zeros array', () => {
+      it('creates 2D zeros array', async () => {
         const arr = B.zeros([3, 4]);
         expect(arr.shape).toEqual([3, 4]);
-        expect(arr.data.length).toBe(12);
-        expect(arr.data.every((x) => x === 0.0)).toBe(true);
+        expect(arr.shape.reduce((a, b) => a * b, 1)).toBe(12);
+        expect((await getData(arr, B)).every(x => x === 0.0)).toBe(true);
       });
 
-      it('creates 3D zeros array', () => {
+      it('creates 3D zeros array', async () => {
         const arr = B.zeros([2, 3, 4]);
         expect(arr.shape).toEqual([2, 3, 4]);
-        expect(arr.data.length).toBe(24);
+        expect(arr.shape.reduce((a, b) => a * b, 1)).toBe(24);
       });
 
       it('creates empty zeros array', () => {
         const arr = B.zeros([0]);
-        expect(arr.data.length).toBe(0);
+        expect(arr.shape.reduce((a, b) => a * b, 1)).toBe(0);
       });
     });
 
     // ============ ones ============
 
     describe('ones', () => {
-      it('creates 1D ones array', () => {
+      it('creates 1D ones array', async () => {
         const arr = B.ones([5]);
-        expect(arr.data.every((x) => x === 1.0)).toBe(true);
+        expect((await getData(arr, B)).every(x => x === 1.0)).toBe(true);
       });
 
-      it('creates 2D ones array', () => {
+      it('creates 2D ones array', async () => {
         const arr = B.ones([3, 4]);
         expect(arr.shape).toEqual([3, 4]);
-        expect(arr.data.every((x) => x === 1.0)).toBe(true);
+        expect((await getData(arr, B)).every(x => x === 1.0)).toBe(true);
       });
     });
 
     // ============ full ============
 
     describe('full', () => {
-      it('creates full array', () => {
+      it('creates full array', async () => {
         const arr = B.full([3, 3], 7.5);
-        expect(arr.data.every((x) => x === 7.5)).toBe(true);
+        expect((await getData(arr, B)).every(x => x === 7.5)).toBe(true);
       });
 
-      it('creates full array with negative value', () => {
+      it('creates full array with negative value', async () => {
         const arr = B.full([2, 2], -3.15);
-        expect(arr.data.every((x) => approxEq(x, -3.15, DEFAULT_TOL))).toBe(true);
+        expect((await getData(arr, B)).every(x => approxEq(x, -3.15, DEFAULT_TOL))).toBe(true);
       });
     });
 
@@ -109,7 +103,7 @@ export function creationTests(getBackend: () => Backend) {
 
       it('creates empty arange for invalid range', () => {
         const arr = B.arange(5.0, 0.0, 1.0);
-        expect(arr.data.length).toBe(0);
+        expect(arr.shape.reduce((a, b) => a * b, 1)).toBe(0);
       });
     });
 
@@ -137,7 +131,7 @@ export function creationTests(getBackend: () => Backend) {
 
       it('creates empty linspace', () => {
         const arr = B.linspace(0.0, 1.0, 0);
-        expect(arr.data.length).toBe(0);
+        expect(arr.shape.reduce((a, b) => a * b, 1)).toBe(0);
       });
 
       it('creates negative range linspace', async () => {
