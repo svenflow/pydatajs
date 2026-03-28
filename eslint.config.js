@@ -5,7 +5,14 @@ export default tseslint.config(
   eslint.configs.recommended,
   ...tseslint.configs.recommended,
   {
-    ignores: ['**/dist/**', '**/node_modules/**', '**/target/**', '**/*.wasm', '**/pkg/**'],
+    ignores: [
+      '**/dist/**',
+      '**/node_modules/**',
+      '**/target/**',
+      '**/*.wasm',
+      '**/pkg/**',
+      '**/*-bundle.js',
+    ],
   },
   {
     files: ['**/*.ts', '**/*.tsx'],

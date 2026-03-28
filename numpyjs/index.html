@@ -1022,7 +1022,7 @@ async function runSnippet() {
   output.textContent = '';
 
   try {
-    const { createBackend } = await import('https://cdn.jsdelivr.net/npm/numpyjs@latest/+esm');
+    const { createBackend } = await import('./numpyjs-bundle.js');
     status.textContent = 'Running...';
     const np = await createBackend('js');
 
